@@ -24,13 +24,18 @@ const REF_ATTR = n => /^(ref|href|idref|idrefs|target|refid|xref)$/i.test(n) || 
 function xmlSource(doc, fileName){
   const E = [];              /* index → element record */
   const byEl = new Map();
-  (function walk(el, parent, depth){
-    const rec = { i:E.length, el, parent, depth, tag:el.localName, prefix:el.prefix || "", kids:[], desc:0 };
-    E.push(rec); byEl.set(el, rec);
-    if (parent) parent.kids.push(rec);
-    for (const c of el.children) walk(c, rec, depth + 1);
-    if (parent) parent.desc += rec.desc + 1;
-  })(doc.documentElement, null, 0);
+  /* iterative walk, so very deep files cannot overflow the stack; tags keep their prefix (a:item and b:item differ) */
+  (function walk(rootEl){
+    const stack = [[rootEl, null, 0]];
+    while (stack.length) {
+      const [el, parent, depth] = stack.pop();
+      const rec = { i:E.length, el, parent, depth, tag:el.nodeName, kids:[], desc:0 };
+      E.push(rec); byEl.set(el, rec);
+      if (parent) parent.kids.push(rec);
+      for (let c = el.lastElementChild; c; c = c.previousElementSibling) stack.push([c, rec, depth + 1]);
+    }
+    for (let i = E.length - 1; i > 0; i--) E[i].parent.desc += E[i].desc + 1;
+  })(doc.documentElement);
   const id = r => "e" + r.i;
   const rec = idv => E[+String(idv).slice(1)];
 
@@ -45,8 +50,8 @@ function xmlSource(doc, fileName){
   function keyOf(r){
     const el = r.el;
     for (const a of KEY_ATTRS) { const v = el.getAttribute(a); if (v) return v; }
+    for (const at of el.attributes) if (at.localName === "id" || at.localName === "name") return at.value;
     for (const at of el.attributes) if (REF_ATTR(at.localName)) return "→ " + at.value.replace(/^#/, "");
-    for (const at of el.attributes) if (/:?(id|name)$/i.test(at.name)) return at.value;
     for (const c of el.children) if (KEY_CHILDREN.includes(c.localName) && !c.children.length) { const v = c.textContent.trim(); if (v) return v; }
     if (!el.children.length) { const v = el.textContent.trim(); if (v) return v; }
     return "";
@@ -56,12 +61,13 @@ function xmlSource(doc, fileName){
   /* id / idref links */
   const ids = new Map();
   for (const r of E) for (const at of r.el.attributes) if (ID_ATTRS.has(at.name) || at.localName === "id") ids.set(at.value, r);
-  const out = new Map(), inn = new Map();
+  const out = new Map(), inn = new Map(), broken = new Map();
   for (const r of E) for (const at of r.el.attributes) {
     if (!REF_ATTR(at.localName) || ID_ATTRS.has(at.name)) continue;
     for (const raw of at.value.split(/\s+/)) {
       const v = raw.replace(/^#/, ""), t = ids.get(v);
-      if (!t || t === r) continue;
+      if (!v || t === r) continue;
+      if (!t) { (broken.get(r) || broken.set(r, []).get(r)).push({ attr:at.name, v }); continue; }
       (out.get(r) || out.set(r, []).get(r)).push({ to:t, attr:at.name });
       (inn.get(t) || inn.set(t, []).get(t)).push({ from:r, attr:at.name });
     }
@@ -104,7 +110,8 @@ function xmlSource(doc, fileName){
         facts:[r.desc ? r.desc + " elements inside" : "no child elements", r.el.namespaceURI ? "ns " + r.el.namespaceURI : ""].filter(Boolean),
         orbits:[...kidTags].map(([t, n]) => ({ color:"t:" + t, title:"<" + t + ">", count:n })),
         linksOut:(out.get(r) || []).map(o => ({ id:id(o.to), text:"@" + o.attr + " → " + o.to.label, color:"ref" })),
-        linksIn:(inn.get(r) || []).map(o => ({ id:id(o.from), text:o.from.label + " @" + o.attr, color:"ref" }))
+        linksIn:(inn.get(r) || []).map(o => ({ id:id(o.from), text:o.from.label + " @" + o.attr, color:"ref" })),
+        broken:(broken.get(r) || []).map(b => "@" + b.attr + " → " + b.v + " (not found in this file)")
       };
     }
   };
@@ -154,8 +161,18 @@ function catalogueSource(FC, startKey, fileName){
     pathTo(x){
       const t = FC.by.get(x); if (!t) return null;
       if (t === root) return [startKey];
-      const steps = F.bfs(root, t, false) || F.bfs(root, t, true);
-      return steps ? [startKey, ...steps.map(s => F.keyOf(s.to))] : null;
+      /* follow only links that groups() shows as orbits, so the path can always be opened */
+      const prev = new Map([[root, null]]), q = [root];
+      while (q.length && !prev.has(t)) {
+        const x = q.shift();
+        for (const g of F.branches(x)) for (const e of g.entries) {
+          const it = e.item; if (!it || it.missing || prev.has(it)) continue;
+          prev.set(it, x); q.push(it);
+        }
+      }
+      if (!prev.has(t)) return null;
+      const out = []; for (let x = t; x; x = prev.get(x)) out.unshift(F.keyOf(x));
+      return out;
     },
     search(q){
       q = q.trim().toLowerCase(); if (!q) return [];

@@ -43,10 +43,11 @@ function resize(){
 /* the free part of the screen: below the top bar, left of the side panel */
 function freeArea(){
   const top = $("top").getBoundingClientRect().bottom + 8;
-  const side = $("side");
-  const right = !side.hidden && W > 760 ? side.getBoundingClientRect().left - 8 : W - 8;
+  const side = $("side"), sr = side.hidden ? null : side.getBoundingClientRect();
+  const right = sr && W > 760 ? sr.left - 8 : W - 8;
+  const bottom = sr && W <= 760 ? sr.top - 8 : H - 8;
   const lg = $("legend"), left = lg.open && W > 1100 ? Math.min(lg.getBoundingClientRect().right + 8, W * 0.3) : 8;
-  return { x0:left, y0:top, x1:right, y1:H - 8 };
+  return { x0:left, y0:top, x1:right, y1:Math.max(top + 80, bottom) };
 }
 
 /* ---------------- frame loop ---------------- */
@@ -59,21 +60,22 @@ function frame(now){
   const moving = A.O ? A.O.step(dt, spin) : false;
   const camMoving = cameraStep();
   draw();
+  if (!A.ptr && A.mx != null && (camMoving || moving || spin)) { const h = hit(A.mx, A.my, A.mslop); if ((h?.id ?? null) !== A.hover) setHover(h); else if (h && !$("tip").hidden) placeTip(h); }
   if (spin || moving || camMoving || A.ptr?.dragging) raf = requestAnimationFrame(frame); else last = 0;
 }
 function cameraStep(){
   const c = A.cam, f = REDUCED ? 1 : 0.13;
-  if (A.follow) {
+  if (A.follow && !(A.ptr?.dragging && A.ptr.body?.id === A.follow)) {
     const b = A.O?.bodies.get(A.follow);
     if (!b) { A.follow = null; return false; }
     const fa = freeArea(), cx = (fa.x0 + fa.x1) / 2, cy = (fa.y0 + fa.y1) / 2;
     const k = A.followK ? c.k + (A.followK - c.k) * f : c.k;
     if (A.followK && Math.abs(A.followK - c.k) < 0.002) A.followK = null;
-    const sx = c.x + c.k * b.x, sy = c.y + c.k * b.y;
-    const nx = sx + (cx - sx) * f, ny = sy + (cy - sy) * f;
-    const moved = Math.abs(cx - sx) > 0.3 || Math.abs(cy - sy) > 0.3 || A.followK;
-    c.x = nx - k * b.x; c.y = ny - k * b.y; c.k = k;
-    return !!moved;
+    /* lock onto the body and ease only its offset from the centre, so however fast it orbits the camera never lags */
+    if (!A.followOff) A.followOff = [c.x + c.k * b.x - cx, c.y + c.k * b.y - cy];
+    const o = A.followOff; o[0] *= 1 - f; o[1] *= 1 - f;
+    c.x = cx + o[0] - k * b.x; c.y = cy + o[1] - k * b.y; c.k = k;
+    return Math.abs(o[0]) > 0.3 || Math.abs(o[1]) > 0.3 || !!A.followK;
   }
   if (A.camTo) {
     const t = A.camTo;
@@ -87,7 +89,9 @@ function fit(animate = true){
   if (!A.O) return;
   A.follow = null; A.followK = null;
   const fa = freeArea(), R = A.O.extent() + 120;
-  const k = Math.max(0.05, Math.min(1.6, Math.min(fa.x1 - fa.x0, fa.y1 - fa.y0) / (2 * R)));
+  let k = Math.min(1.6, Math.min(fa.x1 - fa.x0, fa.y1 - fa.y0) / (2 * R));
+  if (!isFinite(k) || k <= 0) k = 0.05;
+  k = Math.max(0.002, k);
   const t = { x:(fa.x0 + fa.x1) / 2, y:(fa.y0 + fa.y1) / 2, k };
   if (animate && !REDUCED) A.camTo = t; else { Object.assign(A.cam, t); A.camTo = null; }
   kick();
@@ -96,10 +100,11 @@ function followBody(b, zoomToSystem){
   if (!b) return;
   A.camTo = null;
   if (!b.parent) { fit(true); return; }
-  A.follow = b.id;
+  A.follow = b.id; A.followOff = null;
   if (zoomToSystem) {
     const fa = freeArea();
-    A.followK = Math.max(0.25, Math.min(2.2, Math.min(fa.x1 - fa.x0, fa.y1 - fa.y0) / (2 * ((b.sysR || 0) + b.size + 70))));
+    const R = ((b.sysR || 0) + b.size) * 1.15 + 6;
+    A.followK = Math.max(0.05, Math.min(1e5, Math.min(fa.x1 - fa.x0, fa.y1 - fa.y0) / (2 * R)));
   }
   kick();
 }
@@ -139,50 +144,58 @@ function draw(){
   const O = A.O; if (!O) return;
   const lit = litSet(), dim = lit ? 0.13 : 1;
 
-  ctx.setTransform(DPR * c.k, 0, 0, DPR * c.k, DPR * c.x, DPR * c.y);
-  const px = 1 / c.k;
+  /* everything is drawn in screen pixels, worked out here in full precision: the canvas's own transform
+     loses precision at the very large zooms needed for deep moons */
+  const k = c.k, X = b => c.x + k * b.x, Y = b => c.y + k * b.y;
+  const onScreen = (x, y, r) => x + r > -40 && y + r > -40 && x - r < W + 40 && y - r < H + 40;
   /* orbits */
   for (const b of O.order) for (const ring of b.rings) {
+    const x = X(b), y = Y(b), rr = ring.r * k;
+    if (rr < 1.5 || !onScreen(x, y, rr) || rr > 4 * Math.hypot(W, H) + Math.hypot(x - W / 2, y - H / 2)) continue;
     const on = lit?.rings.has(ring.id);
     ctx.globalAlpha = lit ? (on ? 0.95 : 0.08) : (b.depth === 0 ? 0.5 : 0.38);
-    ctx.strokeStyle = colour(ring.color); ctx.lineWidth = (on ? 1.8 : 1.1) * px;
-    ctx.setLineDash([2 * px, 6 * px]);
-    ctx.beginPath(); ctx.arc(b.x, b.y, ring.r, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = colour(ring.color); ctx.lineWidth = on ? 1.8 : 1.1;
+    ctx.setLineDash([2, 6]);
+    ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.stroke();
   }
   ctx.setLineDash([]);
   /* links */
   for (const l of O.links) {
-    const on = lit?.links.has(l.id), a = l.a, b = l.b;
+    const on = lit?.links.has(l.id), ax = X(l.a), ay = Y(l.a), bx = X(l.b), by = Y(l.b);
+    if (Math.max(ax, bx) < -40 || Math.max(ay, by) < -40 || Math.min(ax, bx) > W + 40 || Math.min(ay, by) > H + 40) continue;
+    if (Math.hypot(bx - ax, by - ay) < 1) continue;
     ctx.globalAlpha = lit ? (on ? 1 : 0.05) : (l.kind === "spoke" ? 0.42 : 0.3);
-    ctx.strokeStyle = colour(l.color); ctx.lineWidth = (on ? 2.2 : l.kind === "spoke" ? 1.1 : 1) * px;
+    ctx.strokeStyle = colour(l.color); ctx.lineWidth = on ? 2.2 : l.kind === "spoke" ? 1.1 : 1;
     ctx.beginPath();
-    if (l.kind === "spoke") { ctx.setLineDash(l.inh ? [3 * px, 4 * px] : []); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); }
-    else { ctx.setLineDash([5 * px, 5 * px]); const dx = b.x - a.x, dy = b.y - a.y, bend = l.kind === "extra" ? 0.16 : 0.24; ctx.moveTo(a.x, a.y); ctx.quadraticCurveTo((a.x + b.x) / 2 - dy * bend, (a.y + b.y) / 2 + dx * bend, b.x, b.y); }
+    if (l.kind === "spoke") { ctx.setLineDash(l.inh ? [3, 4] : []); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); }
+    else { ctx.setLineDash([5, 5]); const dx = bx - ax, dy = by - ay, bend = l.kind === "extra" ? 0.16 : 0.24; ctx.moveTo(ax, ay); ctx.quadraticCurveTo((ax + bx) / 2 - dy * bend, (ay + by) / 2 + dx * bend, bx, by); }
     ctx.stroke();
   }
   ctx.setLineDash([]);
   /* bodies that are folding away */
-  for (const g of O.ghosts) { ctx.globalAlpha = Math.max(0, g.life) * 0.7 * dim; ctx.fillStyle = colour(g.color); ctx.beginPath(); ctx.arc(g.x, g.y, g.size * g.life, 0, 7); ctx.fill(); }
+  for (const g of O.ghosts) { const x = X(g), y = Y(g), r = g.size * k * g.life; if (r < 0.3 || !onScreen(x, y, r)) continue; ctx.globalAlpha = Math.max(0, g.life) * 0.7 * dim; ctx.fillStyle = colour(g.color); ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); }
   /* bodies */
   for (const b of O.order) {
-    const on = !lit || lit.nodes.has(b.id), col = colour(b.color), r = b.size;
+    const x = X(b), y = Y(b), r = Math.max(b.size * k, 1.2);
+    if (!onScreen(x, y, r * 4.2)) continue;
+    const on = !lit || lit.nodes.has(b.id), col = colour(b.color);
     ctx.globalAlpha = on ? 1 : dim;
-    if (b.depth === 0 || (on && lit) || b.id === A.sel || (b.depth === 1 && r * c.k > 4)) {
+    if (b.depth === 0 || (on && lit) || b.id === A.sel || (b.depth === 1 && r > 4)) {
       const gr = r * (b.depth === 0 ? 4.2 : 3.2);
-      ctx.globalAlpha = (on ? (b.depth === 0 ? 0.9 : 0.55) : 0.1);
-      ctx.drawImage(glowSprite(col), b.x - gr, b.y - gr, gr * 2, gr * 2);
+      ctx.globalAlpha = on ? (b.depth === 0 ? 0.9 : 0.55) : 0.1;
+      ctx.drawImage(glowSprite(col), x - gr, y - gr, gr * 2, gr * 2);
       ctx.globalAlpha = on ? 1 : dim;
     }
     if (b.type === "group") {
-      ctx.fillStyle = "#0b1120"; ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, 7); ctx.fill();
-      ctx.strokeStyle = col; ctx.lineWidth = 2 * px; ctx.setLineDash([3 * px, 2.5 * px]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = "#0b1120"; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+      ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.setLineDash([3, 2.5]); ctx.stroke(); ctx.setLineDash([]);
     } else {
-      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, 7); ctx.fill();
-      if (b.abstract) { ctx.fillStyle = "#07090f"; ctx.beginPath(); ctx.arc(b.x, b.y, r * 0.55, 0, 7); ctx.fill(); }
-      ctx.strokeStyle = "rgba(5,7,12,.85)"; ctx.lineWidth = 1.5 * px; ctx.stroke();
+      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+      if (b.abstract) { ctx.fillStyle = "#07090f"; ctx.beginPath(); ctx.arc(x, y, r * 0.55, 0, 7); ctx.fill(); }
+      ctx.strokeStyle = "rgba(5,7,12,.85)"; ctx.lineWidth = 1.5; ctx.stroke();
     }
-    if (b.isOpen && b.depth > 0) { ctx.strokeStyle = col; ctx.lineWidth = 1.4 * px; ctx.setLineDash([2 * px, 3 * px]); ctx.beginPath(); ctx.arc(b.x, b.y, r + 4 * px + 2, 0, 7); ctx.stroke(); ctx.setLineDash([]); }
-    if (b.id === A.sel) { ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2 * px; ctx.beginPath(); ctx.arc(b.x, b.y, r + 7 * px + 2, 0, 7); ctx.stroke(); }
+    if (b.isOpen && b.depth > 0) { ctx.strokeStyle = col; ctx.lineWidth = 1.4; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.arc(x, y, r + 6, 0, 7); ctx.stroke(); ctx.setLineDash([]); }
+    if (b.id === A.sel) { ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 9, 0, 7); ctx.stroke(); }
   }
   ctx.globalAlpha = 1;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -204,7 +217,7 @@ function drawLabels(lit){
     if (lit && !on && b.depth > 0) continue;
     const r = b.size * k;
     if (!on && b.depth > 1 && r < 3.2) continue;
-    const pri = (on ? 0 : 1e6) + (b.id === A.sel || b.id === A.hover ? 0 : 1e5) + b.depth * 1e3 - b.size;
+    const pri = b.depth === 0 ? -1e9 : (on ? 0 : 1e6) + (b.id === A.sel || b.id === A.hover ? 0 : 1e5) + b.depth * 1e3 - b.size;
     cands.push([pri, b]);
   }
   cands.sort((p, q) => p[0] - q[0]);
@@ -215,6 +228,7 @@ function drawLabels(lit){
     if (b.depth === 0) {
       const t = clip(b.label, 40), w = textW(t, SUN);
       const rect = { x:x - w / 2 - 4, y:y + r + 8, w:w + 8, h:20 };
+      if (!free(rect) && lit) continue;
       placed.push(rect); ctx.font = SUN; ctx.fillStyle = "#ffffff"; ctx.textAlign = "center"; ctx.fillText(t, x, y + r + 18); ctx.textAlign = "left";
       continue;
     }
@@ -259,20 +273,26 @@ function drawLabels(lit){
 }
 
 /* ---------------- hit test and pointer ---------------- */
-function hit(sx, sy){
+function hit(sx, sy, slop = 4){
   const O = A.O; if (!O) return null;
   let best = null, bd = Infinity;
   for (const b of O.order) {
-    const [x, y] = S(b), r = Math.max(b.size * A.cam.k, 6) + 4, d = Math.hypot(x - sx, y - sy);
+    const [x, y] = S(b), r = Math.max(b.size * A.cam.k, 6) + slop, d = Math.hypot(x - sx, y - sy);
     if (d < r && d < bd) { best = b; bd = d; }
   }
   return best;
 }
 const pts = new Map();
 canvas.addEventListener("pointerdown", e => {
+  if (e.button !== 0) return;
   canvas.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.offsetX, e.offsetY]);
-  if (pts.size === 2) { const [p, q] = [...pts.values()]; A.pinch = { d:Math.hypot(p[0] - q[0], p[1] - q[1]), k:A.cam.k }; A.ptr = null; return; }
-  const b = hit(e.offsetX, e.offsetY);
+  if (pts.size === 2) {
+    const [p, q] = [...pts.values()]; A.pinch = { d:Math.hypot(p[0] - q[0], p[1] - q[1]), k:A.cam.k };
+    if (A.ptr?.dragging) A.ptr.body.dragging = false;
+    A.ptr = null; canvas.classList.remove("grabbing"); return;
+  }
+  A.mslop = e.pointerType === "touch" ? 16 : 4;
+  const b = hit(e.offsetX, e.offsetY, A.mslop);
   A.ptr = { id:e.pointerId, x0:e.offsetX, y0:e.offsetY, x:e.offsetX, y:e.offsetY, body:b, moved:false, dragging:false };
   hideTip();
 });
@@ -293,7 +313,8 @@ canvas.addEventListener("pointermove", e => {
     }
     P.x = e.offsetX; P.y = e.offsetY; return;
   }
-  setHover(hit(e.offsetX, e.offsetY), e);
+  A.mx = e.offsetX; A.my = e.offsetY; A.mslop = e.pointerType === "touch" ? 16 : 4;
+  setHover(hit(e.offsetX, e.offsetY, A.mslop), e);
 });
 function endPointer(e){
   pts.delete(e.pointerId);
@@ -301,15 +322,24 @@ function endPointer(e){
   const P = A.ptr; if (!P || P.id !== e.pointerId) return;
   A.ptr = null; canvas.classList.remove("grabbing");
   if (P.dragging) { P.body.dragging = false; kick(); return; }
-  if (!P.moved && e.type === "pointerup") { if (P.body) clickBody(P.body); else { select(null); } }
+  if (!P.moved && e.type === "pointerup") {
+    if (P.body) {
+      /* a double-click must not open and immediately fold the same body */
+      const now = performance.now();
+      if (A.lastClick && A.lastClick.id === P.body.id && now - A.lastClick.t < 350) return;
+      A.lastClick = { id:P.body.id, t:now };
+      clickBody(P.body);
+    } else select(null);
+  }
 }
 canvas.addEventListener("pointerup", endPointer);
 canvas.addEventListener("pointercancel", endPointer);
-canvas.addEventListener("pointerleave", () => { if (!A.ptr) setHover(null); });
+canvas.addEventListener("pointerleave", () => { A.mx = null; if (!A.ptr) setHover(null); });
+canvas.addEventListener("contextmenu", e => e.preventDefault());
 canvas.addEventListener("dblclick", e => { if (!hit(e.offsetX, e.offsetY)) fit(true); });
 canvas.addEventListener("wheel", e => { e.preventDefault(); zoomAt(e.offsetX, e.offsetY, Math.exp(-e.deltaY * (e.deltaMode ? 0.05 : 0.0015))); }, { passive:false });
 function zoomAt(sx, sy, f){
-  const c = A.cam, k = Math.max(0.03, Math.min(6, c.k * f));
+  const c = A.cam, k = Math.max(0.002, Math.min(1e5, c.k * f));
   A.camTo = null; A.followK = null;
   if (A.follow) { c.k = k; kick(); return; }
   c.x = sx - (sx - c.x) * (k / c.k); c.y = sy - (sy - c.y) * (k / c.k); c.k = k; kick();
@@ -393,7 +423,8 @@ function renderSide(b){
   const chain = O.chainOf(b);
   const chainHtml = chain.map((x, i) => (i ? `<span class="hop"><span class="dot" style="background:${hopColour(x)}"></span>${esc(hopText(x, 44))} →</span>` : "")
     + (x === b ? `<span class="chip here">${esc(clip(x.label, 30))}</span>` : `<button type="button" class="chip" data-sel="${esc(x.id)}">${esc(clip(x.label, 30))}</button>`)).join(" ");
-  const cross = O.links.filter(l => l.kind !== "spoke" && (l.a === b || l.b === b));
+  const seenX = new Set();
+  const cross = O.links.filter(l => { if (l.kind === "spoke" || (l.a !== b && l.b !== b)) return false; const k = (l.a === b ? l.b.id : l.a.id) + "|" + l.color; if (seenX.has(k)) return false; seenX.add(k); return true; });
   const parts = [];
   const col = colour(b.color);
   parts.push(`<div class="kind"><span class="dot" style="background:${col};box-shadow:0 0 8px ${col}"></span>${esc(b.type === "group" ? "Folded group" : info?.kind || "")}</div>`);
@@ -406,6 +437,7 @@ function renderSide(b){
   if (info?.orbits?.length) parts.push(`<div><h3>Its orbits</h3><div class="tags">${info.orbits.map(o => `<span class="tag" style="border-color:${colour(o.color)};color:${colour(o.color)}">${esc(o.title)} ${o.count}</span>`).join("")}</div></div>`);
   const linkRow = (id, text, c) => `<div class="it"><span class="dot" style="background:${colour(c)}"></span><button type="button" class="chip" data-find="${esc(id)}">${esc(clip(text, 48))}</button></div>`;
   if (info?.linksOut?.length) parts.push(`<div><h3>Points to</h3><div class="list">${info.linksOut.slice(0, 30).map(o => linkRow(o.id, o.text, o.color)).join("")}</div></div>`);
+  if (info?.broken?.length) parts.push(`<div><h3>Broken references</h3><div class="list">${info.broken.slice(0, 20).map(t => `<div class="it" style="color:var(--danger)">${esc(t)}</div>`).join("")}</div></div>`);
   if (info?.linksIn?.length) parts.push(`<div><h3>Pointed at by</h3><div class="list">${info.linksIn.slice(0, 30).map(o => linkRow(o.id, o.text, o.color)).join("")}</div></div>`);
   if (cross.length && A.src.mode === "links") parts.push(`<div><h3>Also linked (dashed lines)</h3><div class="list">${cross.slice(0, 20).map(l => { const o = l.a === b ? l.b : l.a; return linkRow(o.id, (A.src.palette.get(l.color)?.title || "") + ": " + o.label, l.color); }).join("")}</div></div>`);
   const acts = [];
@@ -418,7 +450,7 @@ function renderSide(b){
 $("side").addEventListener("click", e => {
   const t = e.target.closest("button"); if (!t) return;
   const b = A.O.bodies.get($("side").dataset.id);
-  if (t.dataset.sel) { const n = A.O.bodies.get(t.dataset.sel); if (n) { select(n); followBody(n, false); } }
+  if (t.dataset.sel) { const n = A.O.bodies.get(t.dataset.sel); if (n) { select(n); followBody(n, false); canvas.focus({ preventScroll:true }); } }
   else if (t.dataset.find) reveal(t.dataset.find);
   else if (t.dataset.act === "close") select(null);
   else if (b && (t.dataset.act === "toggle" || t.dataset.act === "spread")) clickBody(b);
@@ -427,12 +459,12 @@ $("side").addEventListener("click", e => {
 /* ---------------- find ---------------- */
 function reveal(id){
   const path = A.src.pathTo(id);
-  if (!path) { note("No chain of links reaches that from the centre."); return; }
+  if (!path) { note(A.src.mode === "links" ? "That is not reachable as an orbit from this sun. Use “Make it the centre” to start from it." : "That element is not in this file."); return; }
   A.O.reveal(path); A.O.build();
   const b = A.O.bodies.get(id);
-  if (!b) { note("It is linked from a body that is already on the map; look for the dashed line."); return; }
+  if (!b) { note("It sits inside a body that is already on the map; look for the dashed line."); return; }
   select(b); followBody(b, true);
-  if (b.parent) A.followK = Math.max(A.cam.k, 0.9);
+  if (b.parent) A.followK = Math.min(1e5, Math.max(A.followK || A.cam.k, 14 / Math.max(1e-4, b.size)));
 }
 let resIdx = -1;
 $("q").addEventListener("input", () => showResults());
@@ -440,13 +472,13 @@ $("q").addEventListener("focus", () => { if ($("q").value.trim()) showResults();
 $("q").addEventListener("keydown", e => {
   const items = [...$("results").querySelectorAll("button[data-r]")];
   if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); resIdx = Math.max(0, Math.min(items.length - 1, resIdx + (e.key === "ArrowDown" ? 1 : -1))); items.forEach((x, i) => x.classList.toggle("on", i === resIdx)); items[resIdx]?.scrollIntoView({ block:"nearest" }); }
-  else if (e.key === "Enter") { const x = items[Math.max(0, resIdx)]; if (x) x.click(); }
+  else if (e.key === "Enter") { if ($("results").hidden || !$("q").value.trim()) return; const x = items[Math.max(0, resIdx)]; if (x) x.click(); }
   else if (e.key === "Escape") { $("results").hidden = true; }
 });
 document.addEventListener("click", e => { if (!e.target.closest(".searchwrap")) $("results").hidden = true; });
 function showResults(){
   const box = $("results"), q = $("q").value;
-  if (!A.src || !q.trim()) { box.hidden = true; return; }
+  if (!A.src || !q.trim()) { box.hidden = true; box.innerHTML = ""; return; }
   const res = A.src.search(q); resIdx = -1;
   box.innerHTML = res.length ? res.map(r => `<div><button type="button" data-r="${esc(r.id)}"><span class="l">${esc(r.label)}</span><span class="s">${esc(r.sub)}</span></button>${r.canCentre ? `<div class="row" style="padding:0 8px 4px"><button type="button" data-centre="${esc(r.id)}">Make it the centre</button></div>` : ""}</div>`).join("") : `<div class="empty">Nothing matches “${esc(q)}”.</div>`;
   box.hidden = false;
@@ -488,29 +520,37 @@ function setSource(src){
 }
 function loadText(text, name){
   const doc = new DOMParser().parseFromString(text, "application/xml");
-  const perr = doc.getElementsByTagName("parsererror")[0];
+  /* the browser reports bad XML as an XHTML <parsererror> element; an element of that name in the file itself is fine */
+  const perr = doc.getElementsByTagNameNS("http://www.w3.org/1999/xhtml", "parsererror")[0];
   if (perr || !doc.documentElement) throw new Error("This is not well-formed XML. " + ((perr?.querySelector("div") || perr)?.textContent || "").trim().slice(0, 200));
-  A.doc = doc; A.fileName = name; A.FC = null;
-  const isFC = XO.fc.isCatalogue(doc);
-  if (isFC) A.FC = XO.fc.parseFC(doc, name);
+  /* work everything out first, so a failure leaves the current map untouched */
+  let FC = XO.fc.isCatalogue(doc) ? XO.fc.parseFC(doc, name) : null;
+  if (FC && !FC.items.length) FC = null;
+  const src = FC ? XO.sources.catalogueSource(FC, bestStart(FC), name) : XO.sources.xmlSource(doc, name);
+  A.doc = doc; A.fileName = name; A.FC = FC;
+  const isFC = !!FC;
   $("modes").hidden = !isFC;
   const f = $("file"); f.hidden = false;
   f.className = "pill" + (name.startsWith("samples/") ? " warn" : "");
   f.textContent = name.startsWith("samples/") ? "Example: " + name.slice(8).replace(/_/g, " ").replace(/\.xml$/, "") : name;
   f.title = name;
   $("welcome").hidden = true;
-  if (isFC) setSource(XO.sources.catalogueSource(A.FC, bestStart(A.FC), name));
-  else setSource(XO.sources.xmlSource(doc, name));
+  setSource(src);
 }
+let loadSeq = 0;
 async function loadFile(file){
-  A.userLoaded = true;
+  A.userLoaded = true; loadSeq++;
   try { const buf = await file.arrayBuffer(); loadText(XO.fc.decode(buf), file.name); }
   catch (err) { showErr("Could not open " + file.name + ": " + err.message); }
 }
 function showErr(msg){ if (A.src) note(msg); else { $("welcome").hidden = false; $("err").textContent = msg; $("err").hidden = false; } }
 async function loadSample(url = SAMPLE){
-  try { const r = await fetch(url); if (!r.ok) throw new Error("HTTP " + r.status); const buf = await r.arrayBuffer(); if (A.userLoaded) return; loadText(XO.fc.decode(buf), url); }
-  catch (err) { if (!A.src) { $("welcome").hidden = false; if (location.protocol === "file:") { $("err").textContent = "Opened straight from disk, the sample cannot load. Open a file instead, or serve this folder (./serve.sh)."; $("err").hidden = false; } } }
+  const my = ++loadSeq;
+  try { const r = await fetch(url); if (!r.ok) throw new Error("HTTP " + r.status); const buf = await r.arrayBuffer(); if (A.userLoaded || my !== loadSeq) return; loadText(XO.fc.decode(buf), url); }
+  catch (err) {
+    if (my !== loadSeq) return;
+    if (A.src) { note(location.protocol === "file:" ? "Examples need this folder served (./serve.sh). Open a file instead." : "Could not load the example: " + err.message); return; }
+    { $("welcome").hidden = false; if (location.protocol === "file:") { $("err").textContent = "Opened straight from disk, the sample cannot load. Open a file instead, or serve this folder (./serve.sh)."; $("err").hidden = false; } } }
 }
 
 /* ---------------- legend ---------------- */
@@ -544,7 +584,7 @@ for (const id of ["openBtn", "openBtn2"]) $(id).addEventListener("click", () => 
 $("sampleBtn").addEventListener("click", () => { A.userLoaded = false; loadSample(); });
 $("examples").addEventListener("change", e => { const u = e.target.value; e.target.value = ""; if (u) { A.userLoaded = false; loadSample(u); } });
 $("fileIn").addEventListener("change", e => { const f = e.target.files[0]; if (f) loadFile(f); e.target.value = ""; });
-$("legend").addEventListener("toggle", () => fit(true));
+$("legend").addEventListener("toggle", () => { const s = A.O?.bodies.get(A.sel); if (s && s.parent) followBody(s, false); else fit(true); });
 let dragDepth = 0;
 window.addEventListener("dragenter", e => { if ([...(e.dataTransfer?.types || [])].includes("Files")) { dragDepth++; $("drop").hidden = false; } });
 window.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; $("drop").hidden = true; } });
@@ -553,7 +593,7 @@ window.addEventListener("drop", e => { e.preventDefault(); dragDepth = 0; $("dro
 document.addEventListener("paste", e => {
   if (e.target.closest?.("input,textarea")) return;
   const t = e.clipboardData?.getData("text") || "";
-  if (t.trim().startsWith("<")) { A.userLoaded = true; try { loadText(t, "pasted XML"); } catch (err) { showErr(err.message); } }
+  if (t.trim().startsWith("<")) { A.userLoaded = true; loadSeq++; try { loadText(t, "pasted XML"); } catch (err) { showErr(err.message); } }
 });
 window.addEventListener("resize", () => { resize(); });
 if (innerWidth < 1100) $("legend").open = false;
