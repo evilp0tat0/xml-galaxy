@@ -1,5 +1,5 @@
-/* Sources turn a parsed XML document into bodies and orbits.
-   Both kinds answer the same questions, so the orbit engine and the drawing never care which one they have:
+/* A source turns a parsed XML document into bodies and orbits. It answers a fixed set of questions,
+   so the orbit engine and the drawing never depend on how the answers are worked out:
      node(id)      what a body is (label, colour key, size)
      groups(id)    what orbits it, one group per orbit
      refs(id)      extra links to bodies elsewhere (drawn dashed)
@@ -19,7 +19,23 @@ const PALETTE = ["#2dd4bf","#60a5fa","#f472b6","#fbbf24","#a78bfa","#34d399","#f
 const KEY_ATTRS = ["name", "id", "code", "key", "title", "label", "type"];
 const KEY_CHILDREN = ["name", "code", "title", "label", "identifier"];
 const ID_ATTRS = new Set(["id", "ID", "Id", "xml:id"]);
-const REF_ATTR = n => /^(ref|href|idref|idrefs|target|refid|xref)$/i.test(n) || /Ref$/.test(n) || /^ref[A-Z]/.test(n);
+/* attributes that point at another element's id: the common names, plus any name ending in Ref or Refs (bookRef, targetRefs) */
+const REF_ATTR = n => /^(ref|href|idref|idrefs|target|refid|xref)$/i.test(n) || /Refs?$/.test(n) || /^ref[A-Z]/.test(n);
+
+/* Bytes to text. A byte-order mark decides first (UTF-16 or UTF-8); then valid UTF-8 wins, because files are often
+   mislabelled; otherwise the encoding the XML declaration names (XML 1.0 §4.3.3), falling back to windows-1252. */
+function decode(buf){
+  const u = new Uint8Array(buf, 0, Math.min(4, buf.byteLength));
+  if (u[0] === 0xFF && u[1] === 0xFE) return new TextDecoder("utf-16le").decode(buf);
+  if (u[0] === 0xFE && u[1] === 0xFF) return new TextDecoder("utf-16be").decode(buf);
+  if (u[0] === 0x3C && u[1] === 0) return new TextDecoder("utf-16le").decode(buf);
+  if (u[0] === 0 && u[1] === 0x3C) return new TextDecoder("utf-16be").decode(buf);
+  try { return new TextDecoder("utf-8", { fatal:true }).decode(buf); } catch {}
+  const head = new TextDecoder("latin1").decode(new Uint8Array(buf.slice(0, 300)));
+  const m = /encoding\s*=\s*["']([A-Za-z0-9._-]+)["']/.exec(head);
+  try { return new TextDecoder(m ? m[1] : "windows-1252").decode(buf); } catch { return new TextDecoder("utf-8").decode(buf); }
+}
+XO.decode = decode;
 
 function xmlSource(doc, fileName){
   const E = [];              /* index → element record */
@@ -75,7 +91,7 @@ function xmlSource(doc, fileName){
 
   const size = r => r.depth === 0 ? 26 : Math.min(17, 4.5 + 2.3 * Math.log2(1 + r.desc));
   return {
-    mode:"tree", mergeRings:true, fileName, palette, total:E.length, rootId:id(E[0]),
+    mode:"tree", fileName, palette, total:E.length, rootId:id(E[0]),
     title:"<" + E[0].tag + ">",
     has: x => !!rec(x),
     node(x){ const r = rec(x); return r && { id:x, label:r.label, color:"t:" + r.tag, size:size(r), kind:"<" + r.tag + ">" }; },
@@ -125,77 +141,5 @@ function xmlSource(doc, fileName){
   }
 }
 
-/* ---------------- S-100 Feature Catalogue: the chosen type is the sun, linked types orbit it by kind of link ---------------- */
-const KIND_COL = { ft:"#2dd4bf", it:"#60a5fa", fa:"#fb923c", ia:"#facc15", ro:"#fb7185", ca:"#a78bfa", sa:"#94a3b8" };
-const CAT_COL = { super:"#a78bfa", sub:"#c4b5fd", in:"#fb923c", used:"#fb923c", feat:"#2dd4bf", info:"#60a5fa", attr:"#64748b", parts:"#64748b", val:"#475569", roles:"#fb7185", assoc:"#fb7185" };
-const PLANET = { ft:13, it:12, fa:10, ia:10, ro:9, ca:10, sa:8 };
-
-function catalogueSource(FC, startKey, fileName){
-  const F = XO.fc;
-  const palette = new Map();
-  for (const [k, v] of Object.entries(F.KIND)) palette.set("k:" + k, { color:KIND_COL[k], title:v.one, body:true });
-  for (const c of ["super","sub","feat","info","in","roles","attr","val"]) palette.set("c:" + c, { color:CAT_COL[c], title:{ super:"Inherits from", sub:"Subtypes", feat:"Feature links", info:"Information links", in:"Links in / used by", roles:"Associations, roles", attr:"Attributes, parts", val:"Allowed values" }[c] });
-  const catKey = c => "c:" + ({ used:"in", parts:"attr", assoc:"roles" }[c] || c);
-  const vals = new Map(), missing = new Map();
-  const nid = e => e.val ? "v:" + e.attr.code + ":" + e.val.code : e.item.missing ? "x:" + e.item.code : F.keyOf(e.item);
-  const root = FC.by.get(startKey);
-  return {
-    mode:"links", fileName, palette, total:FC.items.length, rootId:startKey, FC,
-    title:root.name || root.code,
-    has: x => FC.by.has(x) || vals.has(x) || missing.has(x),
-    node(x){
-      const it = FC.by.get(x);
-      if (it) return { id:x, label:it.name || it.code, color:"k:" + it.kind, size:x === startKey ? 28 : PLANET[it.kind], kind:F.KIND[it.kind].one, abstract:it.abstract };
-      const v = vals.get(x); if (v) return { id:x, label:v.val.code + " · " + (v.val.label || ""), color:"c:val", size:5, kind:"Allowed value" };
-      const m = missing.get(x); if (m) return { id:x, label:m + " (not defined)", color:"miss", size:7, kind:"Missing" };
-      return null;
-    },
-    canOpen: x => { const it = FC.by.get(x); return !!it && F.branches(it).length > 0; },
-    groups(x){
-      const it = FC.by.get(x); if (!it) return [];
-      return F.branches(it).map(g => ({ key:g.cat, title:F.CAT[g.cat].title, color:catKey(g.cat),
-        entries:g.entries.map(e => { const i = nid(e); if (e.val) vals.set(i, e); else if (e.item.missing) missing.set(i, e.item.code);
-          return { id:i, short:clip(e.short ?? e.label ?? "", 30), label:e.label || "", inherited:!!e.inherited }; }) }));
-    },
-    refs: () => [],
-    pathTo(x){
-      const t = FC.by.get(x); if (!t) return null;
-      if (t === root) return [startKey];
-      /* follow only links that groups() shows as orbits, so the path can always be opened */
-      const prev = new Map([[root, null]]), q = [root];
-      while (q.length && !prev.has(t)) {
-        const x = q.shift();
-        for (const g of F.branches(x)) for (const e of g.entries) {
-          const it = e.item; if (!it || it.missing || prev.has(it)) continue;
-          prev.set(it, x); q.push(it);
-        }
-      }
-      if (!prev.has(t)) return null;
-      const out = []; for (let x = t; x; x = prev.get(x)) out.unshift(F.keyOf(x));
-      return out;
-    },
-    search(q){
-      q = q.trim().toLowerCase(); if (!q) return [];
-      return FC.items.filter(i => (i.name || "").toLowerCase().includes(q) || i.code.toLowerCase().includes(q) || i.alias.some(a => a.toLowerCase().includes(q)))
-        .slice(0, 40).map(i => ({ id:F.keyOf(i), label:i.name || i.code, sub:F.KIND[i.kind].one + " · " + i.code, canCentre:true }));
-    },
-    info(x){
-      const it = FC.by.get(x);
-      if (!it) { const v = vals.get(x); if (v) return { kind:"Allowed value", title:v.val.label, code:v.attr.code + " = " + v.val.code, def:v.val.def && v.val.def !== "." ? v.val.def : "", facts:[] };
-        return { kind:"Missing", title:missing.get(x) || x, code:"", def:"Referenced but not defined in the catalogue.", facts:[] }; }
-      const facts = [];
-      if (it.abstract) facts.push("abstract");
-      if (it.useType) facts.push(it.useType);
-      for (const p of it.prims || []) facts.push(p);
-      if (it.valueType) facts.push(it.valueType);
-      if (it.uom) facts.push(it.uom);
-      for (const a of it.alias) facts.push("alias " + a);
-      return { kind:F.KIND[it.kind].one + (x === startKey ? " · the sun" : ""), title:it.name || it.code, code:it.code,
-        def:it.def && it.def !== "." ? it.def : "", facts,
-        orbits:F.branches(it).map(g => ({ color:catKey(g.cat), title:F.CAT[g.cat].title, count:g.entries.length })) };
-    }
-  };
-}
-
-XO.sources = { xmlSource, catalogueSource, PALETTE };
+XO.sources = { xmlSource, PALETTE };
 })();

@@ -4,12 +4,12 @@
 const XO = window.XO, clip = XO.clip;
 /* The released version (RULES.md rule 20). Change it with every change that ships, together with a CHANGELOG.md entry;
    tools/smoke.mjs fails if the two disagree. */
-const VERSION = "1.1.0";
+const VERSION = "2.0.0";
 XO.VERSION = VERSION;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
 const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
-const SAMPLE = "samples/S-201_FC_OpenS100_draft.xml";
+const SAMPLE = "samples/solar-system.xml";
 
 const canvas = $("sky"), ctx = canvas.getContext("2d");
 const A = { doc:null, FC:null, fileName:"", mode:"tree", src:null, O:null, playing:!REDUCED,
@@ -107,7 +107,8 @@ function followBody(b, zoomToSystem){
   A.follow = b.id; A.followOff = null;
   if (zoomToSystem) {
     const fa = freeArea();
-    const R = ((b.sysR || 0) + b.size) * 1.15 + 6;
+    /* an open body fills the view with its own system; a closed one is shown small, with room around it to see where it sits */
+    const R = b.sysR ? (b.sysR + b.size) * 1.15 : b.size * 20;
     A.followK = Math.max(0.05, Math.min(1e5, Math.min(fa.x1 - fa.x0, fa.y1 - fa.y0) / (2 * R)));
   }
   kick();
@@ -368,11 +369,11 @@ function setHover(b, e){
 }
 function hideTip(){ $("tip").hidden = true; }
 function chainText(b){
-  return A.O.chainOf(b).map((x, i) => (i ? `<span class="s">→ ${esc(hopText(x, 40))} →</span> ` : "") + `<b>${esc(clip(x.label, 34))}</b>`).join(" ");
+  return A.O.chainOf(b).map((x, i) => (i ? `<span class="s">→ ${esc(hopText(x))} →</span> ` : "") + `<b>${esc(clip(x.label, 34))}</b>`).join(" ");
 }
-/* how a body hangs off its parent: the kind of link (catalogue) or its tag (plain XML) */
-function hopText(x, n){ return A.src.mode === "links" ? clip(x.via?.label || x.ring?.title || "", n) : (x.type === "group" ? x.label : x.kind || ""); }
-const hopColour = x => A.src.mode === "links" ? colour(x.ring?.color) : colour(x.color);
+/* how a body hangs off its parent: its tag (or the group's) */
+function hopText(x){ return x.type === "group" ? x.label : x.kind || ""; }
+const hopColour = x => colour(x.color);
 function tipHtml(b){
   const n = A.src.node(b.id), kind = b.type === "group" ? `${b.count} × ${esc(b.label)} (folded)` : esc(n?.kind || "");
   const act = b.type === "group" ? "Click to spread them into a full orbit" : b.parent && A.src.canOpen(b.id) ? (b.isOpen ? "Click to fold its orbits" : "Click to open its own orbits") : "";
@@ -425,7 +426,7 @@ function rebuildAndKeep(){ A.O.build(); const s = A.O.bodies.get(A.sel); if (s) 
 function renderSide(b){
   const side = $("side"), info = b.type === "group" ? null : A.src.info(b.id), O = A.O;
   const chain = O.chainOf(b);
-  const chainHtml = chain.map((x, i) => (i ? `<span class="hop"><span class="dot" style="background:${hopColour(x)}"></span>${esc(hopText(x, 44))} →</span>` : "")
+  const chainHtml = chain.map((x, i) => (i ? `<span class="hop"><span class="dot" style="background:${hopColour(x)}"></span>${esc(hopText(x))} →</span>` : "")
     + (x === b ? `<span class="chip here">${esc(clip(x.label, 30))}</span>` : `<button type="button" class="chip" data-sel="${esc(x.id)}">${esc(clip(x.label, 30))}</button>`)).join(" ");
   const seenX = new Set();
   const cross = O.links.filter(l => { if (l.kind === "spoke" || (l.a !== b && l.b !== b)) return false; const k = (l.a === b ? l.b.id : l.a.id) + "|" + l.color; if (seenX.has(k)) return false; seenX.add(k); return true; });
@@ -443,7 +444,6 @@ function renderSide(b){
   if (info?.linksOut?.length) parts.push(`<div><h3>Points to</h3><div class="list">${info.linksOut.slice(0, 30).map(o => linkRow(o.id, o.text, o.color)).join("")}</div></div>`);
   if (info?.broken?.length) parts.push(`<div><h3>Broken references</h3><div class="list">${info.broken.slice(0, 20).map(t => `<div class="it" style="color:var(--danger)">${esc(t)}</div>`).join("")}</div></div>`);
   if (info?.linksIn?.length) parts.push(`<div><h3>Pointed at by</h3><div class="list">${info.linksIn.slice(0, 30).map(o => linkRow(o.id, o.text, o.color)).join("")}</div></div>`);
-  if (cross.length && A.src.mode === "links") parts.push(`<div><h3>Also linked (dashed lines)</h3><div class="list">${cross.slice(0, 20).map(l => { const o = l.a === b ? l.b : l.a; return linkRow(o.id, (A.src.palette.get(l.color)?.title || "") + ": " + o.label, l.color); }).join("")}</div></div>`);
   const acts = [];
   if (b.type === "group") acts.push(`<button class="btn primary" type="button" data-act="spread">Spread into a full orbit</button>`);
   else if (b.parent && A.src.canOpen(b.id)) acts.push(`<button class="btn primary" type="button" data-act="toggle">${b.isOpen ? "Fold its orbits" : "Open its own orbits"}</button>`);
@@ -463,11 +463,12 @@ $("side").addEventListener("click", e => {
 /* ---------------- find ---------------- */
 function reveal(id){
   const path = A.src.pathTo(id);
-  if (!path) { note(A.src.mode === "links" ? "That is not reachable as an orbit from this sun. Use “Make it the centre” to start from it." : "That element is not in this file."); return; }
+  if (!path) { note("That element is not in this file."); return; }
   A.O.reveal(path); A.O.build();
   const b = A.O.bodies.get(id);
   if (!b) { note("It sits inside a body that is already on the map; look for the dashed line."); return; }
   select(b); followBody(b, true);
+  /* make sure the found body is big enough to see (about 14 px across its radius) without filling the screen */
   if (b.parent) A.followK = Math.min(1e5, Math.max(A.followK || A.cam.k, 14 / Math.max(1e-4, b.size)));
 }
 let resIdx = -1;
@@ -484,42 +485,31 @@ function showResults(){
   const box = $("results"), q = $("q").value;
   if (!A.src || !q.trim()) { box.hidden = true; box.innerHTML = ""; return; }
   const res = A.src.search(q); resIdx = -1;
-  box.innerHTML = res.length ? res.map(r => `<div><button type="button" data-r="${esc(r.id)}"><span class="l">${esc(r.label)}</span><span class="s">${esc(r.sub)}</span></button>${r.canCentre ? `<div class="row" style="padding:0 8px 4px"><button type="button" data-centre="${esc(r.id)}">Make it the centre</button></div>` : ""}</div>`).join("") : `<div class="empty">Nothing matches “${esc(q)}”.</div>`;
+  box.innerHTML = res.length ? res.map(r => `<div><button type="button" data-r="${esc(r.id)}"><span class="l">${esc(r.label)}</span><span class="s">${esc(r.sub)}</span></button></div>`).join("") : `<div class="empty">Nothing matches “${esc(q)}”.</div>`;
   box.hidden = false;
 }
 $("results").addEventListener("click", e => {
-  const r = e.target.closest("button[data-r]"), c = e.target.closest("button[data-centre]");
-  if (c) { setSource(XO.sources.catalogueSource(A.FC, c.dataset.centre, A.fileName)); }
-  else if (r) reveal(r.dataset.r);
+  const r = e.target.closest("button[data-r]");
+  if (r) reveal(r.dataset.r);
   $("results").hidden = true; $("q").blur();
 });
 
 /* ---------------- loading ---------------- */
 function note(msg){ const t = $("tip"); t.innerHTML = `<b>${esc(msg)}</b>`; t.hidden = false; t.style.left = Math.max(8, W / 2 - 150) + "px"; t.style.top = ($("top").getBoundingClientRect().bottom + 10) + "px"; clearTimeout(note.t); note.t = setTimeout(hideTip, 3500); }
-function bestStart(FC){
-  const F = XO.fc;
-  const score = it => (it.fbind?.length || 0) + (it.ibind?.length || 0) + it.incoming.length + it.subtypes.length + (it.attrs?.length || 0) / 4;
-  const pool = FC.items.filter(i => i.kind === "ft" && !i.abstract);
-  return F.keyOf((pool.length ? pool : FC.items).slice().sort((a, b) => score(b) - score(a))[0]);
-}
 function setSource(src){
   A.src = src; A.O = new XO.Orbits(src); A.sel = null; A.hover = null; A.follow = null; A.followK = null;
   $("side").hidden = true; hideTip();
   /* open the first few levels until there is a fair amount to look at */
-  if (src.mode === "tree") {
-    for (let guard = 0; guard < 60; guard++) {
-      A.O.build();
-      if (A.O.order.length > 40) break;
-      const next = A.O.order.find(b => b.type !== "group" && !A.O.open.has(b.id) && src.canOpen(b.id) && b.depth < 2);
-      if (!next) break;
-      A.O.open.add(next.id);
-    }
+  for (let guard = 0; guard < 60; guard++) {
+    A.O.build();
+    if (A.O.order.length > 40) break;
+    const next = A.O.order.find(b => b.type !== "group" && !A.O.open.has(b.id) && src.canOpen(b.id) && b.depth < 2);
+    if (!next) break;
+    A.O.open.add(next.id);
   }
   A.O.build();
   for (let i = 0; i < 90; i++) A.O.step(1 / 30, false);
   renderLegend();
-  $("modeLinks").setAttribute("aria-pressed", src.mode === "links"); $("modeTree").setAttribute("aria-pressed", src.mode === "tree");
-  $("q").placeholder = src.mode === "links" ? "Find a type and show how it links to the sun" : "Find an element and show where it sits";
   requestAnimationFrame(() => fit(false));
 }
 function loadText(text, name){
@@ -528,15 +518,11 @@ function loadText(text, name){
   const perr = doc.getElementsByTagNameNS("http://www.w3.org/1999/xhtml", "parsererror")[0];
   if (perr || !doc.documentElement) throw new Error("This is not well-formed XML. " + ((perr?.querySelector("div") || perr)?.textContent || "").trim().slice(0, 200));
   /* work everything out first, so a failure leaves the current map untouched */
-  let FC = XO.fc.isCatalogue(doc) ? XO.fc.parseFC(doc, name) : null;
-  if (FC && !FC.items.length) FC = null;
-  const src = FC ? XO.sources.catalogueSource(FC, bestStart(FC), name) : XO.sources.xmlSource(doc, name);
-  A.doc = doc; A.fileName = name; A.FC = FC;
-  const isFC = !!FC;
-  $("modes").hidden = !isFC;
+  const src = XO.sources.xmlSource(doc, name);
+  A.doc = doc; A.fileName = name;
   const f = $("file"); f.hidden = false;
-  f.className = "pill" + (name.startsWith("samples/") ? " warn" : "");
-  f.textContent = name.startsWith("samples/") ? "Example: " + name.slice(8).replace(/_/g, " ").replace(/\.xml$/, "") : name;
+  f.className = "pill";
+  f.textContent = name.startsWith("samples/") ? "Example: " + name.slice(8).replace(/[-_]/g, " ").replace(/\.(xml|svg)$/, "") : name;
   f.title = name;
   $("welcome").hidden = true;
   setSource(src);
@@ -544,13 +530,13 @@ function loadText(text, name){
 let loadSeq = 0;
 async function loadFile(file){
   A.userLoaded = true; loadSeq++;
-  try { const buf = await file.arrayBuffer(); loadText(XO.fc.decode(buf), file.name); }
+  try { const buf = await file.arrayBuffer(); loadText(XO.decode(buf), file.name); }
   catch (err) { showErr("Could not open " + file.name + ": " + err.message); }
 }
 function showErr(msg){ if (A.src) note(msg); else { $("welcome").hidden = false; $("err").textContent = msg; $("err").hidden = false; } }
 async function loadSample(url = SAMPLE){
   const my = ++loadSeq;
-  try { const r = await fetch(url); if (!r.ok) throw new Error("HTTP " + r.status); const buf = await r.arrayBuffer(); if (A.userLoaded || my !== loadSeq) return; loadText(XO.fc.decode(buf), url); }
+  try { const r = await fetch(url); if (!r.ok) throw new Error("HTTP " + r.status); const buf = await r.arrayBuffer(); if (A.userLoaded || my !== loadSeq) return; loadText(XO.decode(buf), url); }
   catch (err) {
     if (my !== loadSeq) return;
     if (A.src) { note(location.protocol === "file:" ? "Examples need this folder served (./serve.sh). Open a file instead." : "Could not load the example: " + err.message); return; }
@@ -560,19 +546,11 @@ async function loadSample(url = SAMPLE){
 /* ---------------- legend ---------------- */
 function renderLegend(){
   const src = A.src, out = [];
-  if (src.mode === "links") {
-    out.push(`<h4>Orbits and lines: how it links to the body it circles</h4>`);
-    for (const [k, v] of src.palette) if (k.startsWith("c:")) out.push(`<div class="k"><i style="background:${v.color}"></i>${esc(v.title)}</div>`);
-    out.push(`<h4>Bodies: what the item is</h4>`);
-    for (const [k, v] of src.palette) if (k.startsWith("k:")) out.push(`<div class="k"><b style="background:${v.color};color:${v.color}"></b>${esc(v.title)}</div>`);
-    out.push(`<div class="k"><i style="background:repeating-linear-gradient(90deg,#94a3b8 0 5px,transparent 5px 9px)"></i>Also linked to a body elsewhere</div>`);
-  } else {
-    out.push(`<h4>Orbit, line and body colour: the element's tag</h4>`);
-    const tags = [...src.palette].filter(([k]) => k.startsWith("t:"));
-    for (const [, v] of tags.slice(0, 16)) out.push(`<div class="k"><b style="background:${v.color};color:${v.color}"></b>${esc(v.title)}<em>${v.count}</em></div>`);
-    if (tags.length > 16) out.push(`<div class="k" style="color:var(--faint)">… and ${tags.length - 16} more tags</div>`);
-    out.push(`<div class="k"><i style="background:repeating-linear-gradient(90deg,#e2e8f0 0 5px,transparent 5px 9px)"></i>id reference (ref, href, idref…)</div>`);
-  }
+  out.push(`<h4>Orbit, line and body colour: the element's tag</h4>`);
+  const tags = [...src.palette].filter(([k]) => k.startsWith("t:"));
+  for (const [, v] of tags.slice(0, 16)) out.push(`<div class="k"><b style="background:${v.color};color:${v.color}"></b>${esc(v.title)}<em>${v.count}</em></div>`);
+  if (tags.length > 16) out.push(`<div class="k" style="color:var(--faint)">… and ${tags.length - 16} more tags</div>`);
+  out.push(`<div class="k"><i style="background:repeating-linear-gradient(90deg,#e2e8f0 0 5px,transparent 5px 9px)"></i>id reference (ref, href, idref…)</div>`);
   out.push(`<p>Click a body to open its own orbits; click again to fold them. A dashed circle with a number is a folded group: click it to spread it out. Drag a body to pull it about; it drifts back to its orbit. Hover to light up the chain back to the centre.</p>`);
   $("legendBody").innerHTML = out.join("");
 }
@@ -582,8 +560,6 @@ function setPlay(on){ A.playing = on; $("play").textContent = on ? "Pause orbits
 $("play").addEventListener("click", () => setPlay(!A.playing));
 $("fit").addEventListener("click", () => fit(true));
 $("foldAll").addEventListener("click", () => { if (!A.O) return; A.O.open = new Set([A.src.rootId]); A.O.spread.clear(); select(null); A.O.build(); setTimeout(() => fit(true), 250); kick(); });
-$("modeLinks").addEventListener("click", () => { if (A.FC && A.src.mode !== "links") setSource(XO.sources.catalogueSource(A.FC, bestStart(A.FC), A.fileName)); });
-$("modeTree").addEventListener("click", () => { if (A.doc && A.src.mode !== "tree") setSource(XO.sources.xmlSource(A.doc, A.fileName)); });
 for (const id of ["openBtn", "openBtn2"]) $(id).addEventListener("click", () => $("fileIn").click());
 $("sampleBtn").addEventListener("click", () => { A.userLoaded = false; loadSample(); });
 $("examples").addEventListener("change", e => { const u = e.target.value; e.target.value = ""; if (u) { A.userLoaded = false; loadSample(u); } });

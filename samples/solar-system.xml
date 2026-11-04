@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Example for XML Galaxy: the Sun, its planets and their best-known moons, nested the way they orbit.
+     Missions point at the bodies they visited with targetRefs, so they show up as dashed links. -->
+<solarSystem name="Solar System">
+  <star id="sun" name="Sun"/>
+  <planets>
+    <planet id="mercury" name="Mercury" order="1" kind="terrestrial"/>
+    <planet id="venus" name="Venus" order="2" kind="terrestrial"/>
+    <planet id="earth" name="Earth" order="3" kind="terrestrial">
+      <moon id="moon" name="Moon"/>
+    </planet>
+    <planet id="mars" name="Mars" order="4" kind="terrestrial">
+      <moon id="phobos" name="Phobos"/>
+      <moon id="deimos" name="Deimos"/>
+    </planet>
+    <planet id="jupiter" name="Jupiter" order="5" kind="gas giant">
+      <moon id="io" name="Io"/>
+      <moon id="europa" name="Europa"/>
+      <moon id="ganymede" name="Ganymede"/>
+      <moon id="callisto" name="Callisto"/>
+    </planet>
+    <planet id="saturn" name="Saturn" order="6" kind="gas giant">
+      <moon id="mimas" name="Mimas"/>
+      <moon id="enceladus" name="Enceladus"/>
+      <moon id="tethys" name="Tethys"/>
+      <moon id="dione" name="Dione"/>
+      <moon id="rhea" name="Rhea"/>
+      <moon id="titan" name="Titan"/>
+      <moon id="iapetus" name="Iapetus"/>
+    </planet>
+    <planet id="uranus" name="Uranus" order="7" kind="ice giant">
+      <moon id="miranda" name="Miranda"/>
+      <moon id="ariel" name="Ariel"/>
+      <moon id="umbriel" name="Umbriel"/>
+      <moon id="titania" name="Titania"/>
+      <moon id="oberon" name="Oberon"/>
+    </planet>
+    <planet id="neptune" name="Neptune" order="8" kind="ice giant">
+      <moon id="triton" name="Triton"/>
+      <moon id="nereid" name="Nereid"/>
+    </planet>
+  </planets>
+  <dwarfPlanets>
+    <dwarfPlanet id="ceres" name="Ceres"/>
+    <dwarfPlanet id="pluto" name="Pluto">
+      <moon id="charon" name="Charon"/>
+      <moon id="styx" name="Styx"/>
+      <moon id="nix" name="Nix"/>
+      <moon id="kerberos" name="Kerberos"/>
+      <moon id="hydra" name="Hydra"/>
+    </dwarfPlanet>
+  </dwarfPlanets>
+  <missions>
+    <mission name="Apollo 11" kind="crewed landing" targetRefs="moon"/>
+    <mission name="Voyager 2" kind="flyby" targetRefs="jupiter saturn uranus neptune"/>
+    <mission name="Cassini" kind="orbiter" targetRefs="saturn">
+      <probe name="Huygens" kind="lander" targetRefs="titan"/>
+    </mission>
+    <mission name="Juno" kind="orbiter" targetRefs="jupiter"/>
+    <mission name="New Horizons" kind="flyby" targetRefs="jupiter pluto"/>
+  </missions>
+</solarSystem>

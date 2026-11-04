@@ -46,8 +46,8 @@ try {
   /* 1. default example loads */
   await page.goto(URL0);
   await page.waitForFunction(() => window.XO?.app?.O?.order?.length > 1, null, { timeout:15000 });
-  const start = await page.evaluate(() => ({ mode:XO.app.src.mode, n:XO.app.O.order.length, version:XO.VERSION }));
-  check("default example loads", start.n > 1, JSON.stringify(start));
+  const start = await page.evaluate(() => ({ root:XO.app.O.root.label, n:XO.app.O.order.length, version:XO.VERSION }));
+  check("default example loads", start.n > 1 && start.root === "solarSystem · Solar System", JSON.stringify(start));
 
   /* 2. the version shown matches the newest changelog entry (rule 19 gate) */
   const top = (fs.readFileSync(path.join(ROOT, "CHANGELOG.md"), "utf8").match(/^## (\d+\.\d+\.\d+)/m) || [])[1];
@@ -56,24 +56,35 @@ try {
   const r = await page.evaluate(async () => {
     const A = XO.app, out = {};
     const text = async u => await (await fetch(u)).text();
-    /* 3. plain XML example: tree mode, references found */
-    A.loadText(await text("samples/S-201_dataset_example.xml"), "samples/S-201_dataset_example.xml");
+    /* 3. solar system: missions point at what they visited (targetRefs) */
+    A.loadText(await text("samples/solar-system.xml"), "samples/solar-system.xml");
+    const voyager = A.src.search("Voyager").find(x => x.label.startsWith("mission"));
+    A.reveal(voyager.id);
+    for (const p of A.src.search("planet").filter(x => x.label.startsWith("planet"))) A.reveal(p.id);
+    out.missionLinks = A.O.links.filter(l => l.kind === "cross" && l.a.id === voyager.id).length;
+    /* 3b. library: a loan is named by the book it points at, and its broken reference is reported */
+    A.loadText(await text("samples/library.xml"), "samples/library.xml");
     out.treeMode = A.src.mode;
-    const fs5 = A.src.search("FS.005").find(x => x.label.startsWith("child"));
-    A.reveal(fs5.id);
+    const loan = A.src.search("b3").find(x => x.label.startsWith("loan"));
+    A.reveal(loan.id);
     out.refLinks = A.O.links.filter(l => l.kind === "cross").length;
-    out.refLabel = A.O.bodies.get(fs5.id)?.label;
+    out.refLabel = A.O.bodies.get(loan.id)?.label;
+    out.libBroken = A.src.info(A.src.search("b99").find(x => x.label.startsWith("loan")).id).broken;
     /* 4. open and fold keep every body unique */
     const ids = () => A.O.order.map(b => b.id);
-    const firstOpenable = A.O.order.find(b => b.parent && A.src.canOpen(b.id) && !A.O.open.has(b.id));
-    A.clickBody(firstOpenable); const afterOpen = ids();
-    A.clickBody(A.O.bodies.get(firstOpenable.id)); const afterFold = ids();
+    /* take any body with children; make sure it starts folded, then open it and fold it again */
+    const target = A.O.order.find(b => b.parent && A.src.canOpen(b.id));
+    if (A.O.open.has(target.id)) A.clickBody(target);
+    A.clickBody(A.O.bodies.get(target.id)); const afterOpen = ids();
+    A.clickBody(A.O.bodies.get(target.id)); const afterFold = ids();
     out.unique = new Set(afterOpen).size === afterOpen.length && new Set(afterFold).size === afterFold.length;
     out.openGrew = afterOpen.length > afterFold.length;
-    /* 5. catalogue view: no body appears twice when one item sits in two groups */
-    A.loadText(await text("samples/S-201_FC_OpenS100_draft.xml"), "samples/S-201_FC_OpenS100_draft.xml");
-    A.clickBody(A.O.order.find(b => b.label === "Equipment"));
-    const cids = A.O.order.map(b => b.id); out.catalogueUnique = new Set(cids).size === cids.length;
+    /* 5. SVG drawing: every <use href> becomes a link to its definition, and opening everything keeps bodies unique */
+    A.loadText(await text("samples/night-sky.svg"), "samples/night-sky.svg");
+    for (let i = 0; i < 6; i++) for (const o of [...A.O.order]) if (o.parent && A.src.canOpen(o.id) && !A.O.open.has(o.id)) A.O.open.add(o.id);
+    A.O.build();
+    const sids = A.O.order.map(b => b.id); out.svgUnique = new Set(sids).size === sids.length;
+    out.svgUses = A.O.links.filter(l => l.kind === "cross" && /use/.test(l.a.label)).length;
     /* 6. drag: a body pulled off its orbit returns and keeps its parent */
     A.playing = false;
     const b = A.O.order.find(x => x.depth === 1 && x.type !== "group"), parent = b.parent.id;
@@ -98,16 +109,18 @@ try {
     out.injected = !!document.querySelector("#side img, #side script, #side b, #results img, #tip img, #legendBody img") || !!window.__pwned;
     /* 11. determinism: the same file twice gives the same orbits */
     const sig = () => A.O.order.map(o => `${o.id}:${o.ring ? o.ring.r.toFixed(3) + "@" + o.a0.toFixed(4) : "root"}`).join("|");
-    const ds = await text("samples/S-201_dataset_example.xml");
+    const ds = await text("samples/library.xml");
     A.loadText(ds, "a.xml"); const s1 = sig(); A.loadText(ds, "b.xml"); const s2 = sig();
     out.deterministic = s1 === s2;
     return out;
   });
+  check("missions link to the bodies they visited", r.missionLinks === 4, `Voyager 2 links: ${r.missionLinks} (expected 4)`);
   check("plain XML opens in tree view", r.treeMode === "tree", r.treeMode);
   check("id references become dashed links", r.refLinks > 0, `cross links: ${r.refLinks}`);
-  check("reference element is named by its target", /→ FS\.005/.test(r.refLabel || ""), r.refLabel);
+  check("reference element is named by its target", /→ b3/.test(r.refLabel || ""), r.refLabel);
+  check("library's broken loan is reported", (r.libBroken || []).some(t => t.includes("b99")), JSON.stringify(r.libBroken));
   check("open and fold keep bodies unique", r.unique && r.openGrew, JSON.stringify({ unique:r.unique, grew:r.openGrew }));
-  check("catalogue view has no duplicate bodies", r.catalogueUnique);
+  check("SVG reuses become links to their definitions", r.svgUses === 7 && r.svgUnique, `use links: ${r.svgUses} (expected 7), unique ${r.svgUnique}`);
   check("dragged body springs back to its orbit", r.dragBack < 1 && r.dragParent, `distance ${r.dragBack?.toFixed(2)}, same parent ${r.dragParent}`);
   check("deep file stays bounded", r.deepExtent < 5000 && r.deepSel === "a16 · n16", `extent ${Math.round(r.deepExtent)}, selected ${r.deepSel}`);
   check("namespaced tags stay apart", r.labels.includes("a:item") && r.labels.includes("b:item"), r.labels.join(", "));

@@ -61,7 +61,7 @@ class Orbits {
         if (p.fold || p.fresh.length < 2 || this.spread.has(p.gid)) continue;
         p.fold = true; shown -= p.fresh.length - 1;
       }
-      const pool = [];
+      const pool = [];   /* every child shares the body's orbits, in document order, coloured by its own group */
       for (const { g, fresh, gid, fold } of plan) {
         const members = [];
         if (fold) {
@@ -76,9 +76,7 @@ class Orbits {
           members.push(b); q.push(b);
           links.push({ id:"s|" + e.id, a:n, b, color:g.color, short:e.short, label:e.label, inh:e.inherited, kind:"spoke" });
         }
-        if (!members.length) continue;
-        if (src.mergeRings) pool.push(...members);
-        else n.rings.push({ id:gid, key:g.key, title:g.title, color:g.color, count:members.reduce((s, m) => s + (m.count || 1), 0), total:g.entries.length, members, center:n, folded:members[0].type === "group" });
+        pool.push(...members);
       }
       for (const { e, g } of later) {
         const t = next.get(e.id) || claimed.get(e.id);

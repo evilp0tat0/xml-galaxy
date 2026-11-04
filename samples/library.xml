@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Example for XML Galaxy: a small library. Books point at their author, loans point at a book and a member,
+     all by id. The members and loans are made up. One loan deliberately points at a book that is not here (b99),
+     to show how a broken reference is reported. -->
+<library name="Example Library">
+  <authors>
+    <author id="a1" name="Jane Austen"/>
+    <author id="a2" name="Mary Shelley"/>
+    <author id="a3" name="Herman Melville"/>
+    <author id="a4" name="H. G. Wells"/>
+    <author id="a5" name="Arthur Conan Doyle"/>
+  </authors>
+  <books>
+    <book id="b1" title="Pride and Prejudice" year="1813" authorRef="a1"/>
+    <book id="b2" title="Emma" year="1815" authorRef="a1"/>
+    <book id="b3" title="Frankenstein" year="1818" authorRef="a2"/>
+    <book id="b4" title="Moby-Dick" year="1851" authorRef="a3"/>
+    <book id="b5" title="The Time Machine" year="1895" authorRef="a4"/>
+    <book id="b6" title="The War of the Worlds" year="1898" authorRef="a4"/>
+    <book id="b7" title="A Study in Scarlet" year="1887" authorRef="a5"/>
+  </books>
+  <members>
+    <member id="m1" name="Ada"/>
+    <member id="m2" name="Ben"/>
+    <member id="m3" name="Chloe"/>
+  </members>
+  <loans>
+    <loan bookRef="b3" memberRef="m1" due="2026-12-01"/>
+    <loan bookRef="b5" memberRef="m1" due="2026-12-01"/>
+    <loan bookRef="b1" memberRef="m2" due="2026-11-20"/>
+    <loan bookRef="b99" memberRef="m3" due="2026-11-25"/>
+  </loans>
+</library>
