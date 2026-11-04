@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>XML Orbitree</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one full-screen night sky (canvas). A slim top bar, a colour key bottom-left, a details panel on the right.
+   Deliberately dark only: it is a sky. */
+:root{
+  --sky:#07090f;--sky-2:#0d1220;--panel:#0f1524;--panel-2:#141c2e;--line:#1f2a40;
+  --text:#e4e4ed;--muted:#8b95ab;--faint:#5b6478;--accent:#2dd4bf;--accent-ink:#04201c;--warn:#fbbf24;--danger:#f87171;
+  --font-ui:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --r:12px;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--sky);color:var(--text);font:14px/1.45 var(--font-ui);overflow:hidden}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+[hidden]{display:none!important}
+code,.mono{font-family:var(--font-mono);font-size:.9em}
+
+#sky{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#sky.grabbing{cursor:grabbing}#sky.pointing{cursor:pointer}
+
+.glass{position:fixed;z-index:5;background:color-mix(in srgb,var(--panel) 88%,transparent);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 10px 40px rgba(0,0,0,.45)}
+.top{top:calc(env(safe-area-inset-top,0px) + 12px);left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;padding:8px 10px}
+.brand{display:flex;align-items:center;gap:9px;margin-right:4px}
+.mark{width:26px;height:26px;flex:none}
+.brand h1{font-size:15px;font-weight:700;margin:0;letter-spacing:.01em;white-space:nowrap}
+.brand h1 span{color:var(--accent)}
+.pill{display:inline-flex;align-items:center;gap:6px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:3px 10px;border-radius:999px;border:1px solid var(--line);background:var(--sky-2);font-size:12px;color:var(--muted)}
+.pill.warn{border-color:transparent;background:#3a2a0a;color:var(--warn)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.seg button{border:0;background:transparent;padding:5px 11px;font-size:12.5px;color:var(--muted);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--panel-2);color:var(--text)}
+.searchwrap{position:relative;flex:1 1 220px;min-width:0;max-width:420px}
+.searchwrap input{width:100%;padding:6px 11px;border:1px solid var(--line);border-radius:9px;background:var(--sky-2)}
+.searchwrap input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(45,212,191,.2)}
+.results{position:absolute;left:0;right:0;top:calc(100% + 6px);max-height:min(60vh,440px);overflow:auto;padding:4px}
+.results button{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;text-align:left;border:0;background:none;padding:6px 9px;border-radius:7px;cursor:pointer}
+.results button:hover,.results button.on{background:var(--panel-2)}
+.results .l{font-size:13px;overflow-wrap:anywhere}
+.results .s{font-size:11px;color:var(--muted);font-family:var(--font-mono);overflow-wrap:anywhere}
+.results .row{display:flex;gap:4px;align-items:center}
+.results .row button{flex-direction:row;width:auto;font-size:11.5px;padding:2px 8px;border:1px solid var(--line);border-radius:999px}
+.results .empty{padding:8px 10px;color:var(--muted);font-size:13px}
+.btn{padding:6px 11px;border-radius:9px;border:1px solid var(--line);background:var(--panel-2);cursor:pointer;font-size:12.5px;white-space:nowrap}
+.btn:hover{border-color:#334160}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.spacer{flex:1}
+
+.legend{left:max(12px,env(safe-area-inset-left,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 12px);padding:4px 12px;font-size:12px;max-width:min(320px,calc(100vw - 24px));max-height:52vh;overflow:auto}
+.legend summary{cursor:pointer;padding:7px 0;font-weight:600;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.legend h4{margin:8px 0 4px;font-size:11px;color:var(--muted);font-weight:600}
+.legend .k{display:flex;align-items:center;gap:8px;padding:1.5px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.legend .k i{width:22px;height:3px;border-radius:2px;flex:none}
+.legend .k b{width:10px;height:10px;border-radius:50%;flex:none;box-shadow:0 0 8px currentColor}
+.legend .k em{font-style:normal;color:var(--faint);margin-left:auto;font-family:var(--font-mono);font-size:11px}
+.legend p{margin:8px 0 10px;color:var(--muted);font-size:11.5px;white-space:normal}
+
+.side{right:max(12px,env(safe-area-inset-right,0px));top:calc(env(safe-area-inset-top,0px) + 74px);bottom:calc(env(safe-area-inset-bottom,0px) + 12px);width:min(360px,calc(100vw - 24px));padding:16px;overflow:auto;display:flex;flex-direction:column;gap:12px}
+.side .kind{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:7px}
+.side h2{margin:0;font-size:18px;line-height:1.25;overflow-wrap:anywhere;text-wrap:balance}
+.side .code{font-family:var(--font-mono);font-size:11.5px;color:var(--muted);overflow-wrap:anywhere}
+.side p{margin:0;font-size:13px;color:#c9cedb;overflow-wrap:anywhere}
+.side h3{margin:0 0 6px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.box{border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--sky-2)}
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:5px 6px;font-size:12.5px}
+.hop{display:inline-flex;align-items:center;gap:5px;color:var(--muted);font-size:11.5px}
+.dot{width:9px;height:9px;border-radius:50%;flex:none;display:inline-block}
+.chip{border:1px solid var(--line);background:var(--panel-2);border-radius:999px;padding:2px 9px;font-size:12px;cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip:hover{border-color:var(--accent)}
+.chip.here{border-color:var(--accent);color:var(--accent);cursor:default}
+.tags{display:flex;flex-wrap:wrap;gap:5px}
+.tag{font-size:11.5px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.attrs{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:3px 12px;font-size:12px}
+.attrs dt{color:var(--muted);font-family:var(--font-mono)}
+.attrs dd{margin:0;font-family:var(--font-mono);overflow-wrap:anywhere}
+.list{display:flex;flex-direction:column;gap:4px;font-size:12.5px}
+.list .it{display:flex;align-items:center;gap:6px;min-width:0}
+.acts{display:flex;flex-wrap:wrap;gap:6px}
+
+.tip{position:fixed;z-index:7;pointer-events:none;background:#0b101c;border:1px solid #2a3550;border-radius:9px;box-shadow:0 8px 30px rgba(0,0,0,.6);padding:8px 10px;font-size:12px;max-width:300px}
+.tip b{display:block;font-size:13px}
+.tip .s{color:var(--muted)}
+.tip .c{margin-top:5px;color:var(--muted);font-size:11.5px;line-height:1.55}
+.tip .c b{display:inline;font-size:11.5px;color:var(--text);font-weight:600}
+
+.status{position:fixed;z-index:4;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 14px);font:11px var(--font-mono);color:var(--faint);pointer-events:none}
+.welcome{left:50%;top:50%;transform:translate(-50%,-50%);width:min(560px,calc(100vw - 32px));padding:24px;display:flex;flex-direction:column;gap:12px}
+.welcome h2{margin:0;font-size:21px}
+.welcome p{margin:0;color:var(--muted)}
+.err{color:var(--danger);font-size:13px}
+.drop{position:fixed;inset:0;z-index:20;display:grid;place-items:center;background:rgba(7,9,15,.8)}
+.drop div{border:2px dashed var(--accent);border-radius:16px;padding:36px 44px;background:var(--panel);font-weight:600}
+
+@media (max-width:760px){
+  .brand h1{display:none}
+  .side{top:auto;height:44vh}
+  .seg button{padding:5px 8px}
+  .status{display:none}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<canvas id="sky" tabindex="0" aria-label="Orbit map of the XML file. Use the search box to find and open elements; the side panel describes the selected one."></canvas>
+
+<header class="glass top" id="top">
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 26 26" aria-hidden="true"><defs><radialGradient id="sg"><stop offset="0" stop-color="#fef3c7"/><stop offset=".55" stop-color="#2dd4bf"/><stop offset="1" stop-color="#2dd4bf" stop-opacity="0"/></radialGradient></defs><circle cx="13" cy="13" r="6" fill="url(#sg)"/><ellipse cx="13" cy="13" rx="11.5" ry="5" fill="none" stroke="#60a5fa" stroke-width="1.2" transform="rotate(-25 13 13)"/><circle cx="23.2" cy="9" r="1.9" fill="#f472b6"/></svg>
+    <h1>XML <span>Orbitree</span></h1>
+  </div>
+  <span id="file" class="pill" hidden></span>
+  <div class="seg" id="modes" hidden role="group" aria-label="View">
+    <button type="button" id="modeLinks" aria-pressed="true">By meaning</button>
+    <button type="button" id="modeTree" aria-pressed="false">As XML tree</button>
+  </div>
+  <div class="searchwrap">
+    <input id="q" type="search" placeholder="Find an element and show where it sits" autocomplete="off" aria-label="Find" aria-controls="results">
+    <div class="glass results" id="results" hidden role="listbox"></div>
+  </div>
+  <div class="spacer"></div>
+  <button class="btn" id="foldAll" type="button">Fold all</button>
+  <button class="btn" id="play" type="button" aria-pressed="true">Pause orbits</button>
+  <button class="btn" id="fit" type="button">Fit</button>
+  <select class="btn" id="examples" aria-label="Open an example">
+    <option value="">Examples…</option>
+    <option value="samples/S-201_FC_OpenS100_draft.xml">S-201 Feature Catalogue (2016 draft)</option>
+    <option value="samples/S-201_dataset_example.xml">S-201 dataset with links (made-up)</option>
+  </select>
+  <button class="btn primary" id="openBtn" type="button">Open XML…</button>
+  <input type="file" id="fileIn" accept=".xml,.gml,.xsd,.svg,.kml,.rss,.atom,.plist,text/xml,application/xml" hidden>
+</header>
+
+<details class="glass legend" id="legend" open>
+  <summary>Colour key</summary>
+  <div id="legendBody"></div>
+</details>
+
+<aside class="glass side" id="side" hidden aria-live="polite"></aside>
+<div class="tip" id="tip" hidden></div>
+<div class="status" id="status"></div>
+
+<section class="glass welcome" id="welcome" hidden>
+  <h2>See an XML file as a solar system</h2>
+  <p>Open or drop any XML file, or paste XML anywhere on this page. The root element is the sun. Each element's children orbit it, one coloured orbit per tag. Click a body to open its own orbits. What orbits what never changes; you can drag bodies about and they drift back.</p>
+  <p>S-100 Feature Catalogues get a second view that orbits types by meaning: inheritance, feature links, attributes and allowed values.</p>
+  <p class="err" id="err" hidden></p>
+  <div class="acts"><button class="btn primary" id="openBtn2" type="button">Open XML…</button><button class="btn" id="sampleBtn" type="button">Load the S-201 sample</button></div>
+</section>
+<div class="drop" id="drop" hidden><div>Drop the XML file</div></div>
+
+<script src="src/fc-model.js"></script>
+<script src="src/sources.js"></script>
+<script src="src/orbits.js"></script>
+<script src="src/app.js"></script>
+</body>
+</html>
