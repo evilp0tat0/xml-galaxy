@@ -102,10 +102,18 @@ function followBody(b, zoomToSystem){
 }
 
 /* ---------------- what is lit ---------------- */
+/* worked out once per hover, selection and rebuild, not every frame */
+let litMemo = { key:null, O:null, val:null };
 function litSet(){
   const O = A.O; if (!O) return null;
   const d = O.bodies.get(A.hover) || O.bodies.get(A.sel);
   if (!d) return null;
+  const key = d.id + "|" + O.version;
+  if (litMemo.key === key && litMemo.O === O) return litMemo.val;
+  litMemo = { key, O, val:litCompute(O, d) };
+  return litMemo.val;
+}
+function litCompute(O, d){
   const nodes = new Set(), links = new Set(), rings = new Set(), chain = O.chainOf(d), onChain = new Set(chain.map(x => x.id));
   for (const x of chain) nodes.add(x.id);
   for (let i = 0; i < chain.length - 1; i++) { const r = chain[i + 1].ring; if (r) rings.add(r.id); }
@@ -123,6 +131,69 @@ const MONO_S = '500 10.5px "JetBrains Mono", "Fira Code", ui-monospace, Menlo, C
 const SUN = '600 13px "JetBrains Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace';
 const widths = new Map();
 function textW(t, font){ const k = font + "|" + t; let w = widths.get(k); if (w == null) { ctx.font = font; w = ctx.measureText(t).width; widths.set(k, w); if (widths.size > 6000) widths.clear(); } return w; }
+
+/* ---------------- line batching and clipping ----------------
+   Only the part of an orbit or link that crosses the screen is drawn. At deep zoom an orbit or link can be
+   millions of pixels long, and stroking (worse, dashing) all of it every frame is what made big files crawl.
+   Lines that look the same are drawn together, so the canvas's style is set once per look, not per line. */
+const VIEW = { x0:0, y0:0, x1:0, y1:0 };
+const outside = (x0, y0, x1, y1) => x1 < VIEW.x0 || y1 < VIEW.y0 || x0 > VIEW.x1 || y0 > VIEW.y1;
+const DASH = { none:[], fold:[3, 4], inh:[3, 4], cross:[5, 5] };
+const pens = new Map();
+/* the batch for lines of one look; lines are queued as plain numbers and drawn at flush time */
+function pen(color, alpha, width, dash){
+  const key = color + "|" + alpha + "|" + width + "|" + dash;
+  let s = pens.get(key);
+  if (!s) pens.set(key, s = { color, alpha, width, dash, q:[] });
+  return s;
+}
+const queueCurve = (s, x0, y0, cx, cy, x1, y1) => s.q.push(0, x0, y0, cx, cy, x1, y1);
+const queueRing = (s, cx, cy, r) => s.q.push(1, cx, cy, r, 0, 0, 0);
+/* Each line is still stroked on its own (one huge path with many crossings rasterises slower),
+   but the look is set once per batch, and faint batches go first so lit lines always sit on top. */
+const L = { p:ctx, lx:NaN, ly:NaN, used:false };
+function flushPens(){
+  for (const s of [...pens.values()].sort((a, b) => a.alpha - b.alpha || a.width - b.width)) {
+    ctx.globalAlpha = s.alpha; ctx.strokeStyle = s.color; ctx.lineWidth = s.width; ctx.setLineDash(DASH[s.dash]);
+    const q = s.q;
+    for (let i = 0; i < q.length; i += 7) {
+      L.lx = L.ly = NaN; L.used = false; ctx.beginPath();
+      if (q[i] === 0) addCurve(L, q[i + 1], q[i + 2], q[i + 3], q[i + 4], q[i + 5], q[i + 6]);
+      else addRing(L, q[i + 1], q[i + 2], q[i + 3]);
+      if (L.used) ctx.stroke();
+    }
+  }
+  pens.clear(); ctx.setLineDash(DASH.none);
+}
+/* carry on the current stroke when a piece starts where the last one ended, so dashes run on unbroken */
+const startAt = (s, x, y) => { s.used = true; if (s.lx !== x || s.ly !== y) s.p.moveTo(x, y); };
+/* a quadratic curve, split in half until each piece is short or off screen (a curve stays inside its control points) */
+function addCurve(s, x0, y0, cx, cy, x1, y1, d = 0){
+  if (outside(Math.min(x0, cx, x1), Math.min(y0, cy, y1), Math.max(x0, cx, x1), Math.max(y0, cy, y1))) return;
+  if (d < 40 && Math.abs(cx - x0) + Math.abs(cy - y0) + Math.abs(x1 - cx) + Math.abs(y1 - cy) > 3000) {
+    const ax = (x0 + cx) / 2, ay = (y0 + cy) / 2, bx = (cx + x1) / 2, by = (cy + y1) / 2, mx = (ax + bx) / 2, my = (ay + by) / 2;
+    addCurve(s, x0, y0, ax, ay, mx, my, d + 1); addCurve(s, mx, my, bx, by, x1, y1, d + 1); return;
+  }
+  startAt(s, x0, y0); s.p.quadraticCurveTo(cx, cy, x1, y1); s.lx = x1; s.ly = y1;
+}
+/* a whole orbit: small ones as one circle, big ones only where they cross the screen */
+function addRing(s, cx, cy, r){
+  if (outside(cx - r, cy - r, cx + r, cy + r)) return;
+  const fx = Math.max(Math.abs(VIEW.x0 - cx), Math.abs(VIEW.x1 - cx)), fy = Math.max(Math.abs(VIEW.y0 - cy), Math.abs(VIEW.y1 - cy));
+  if (fx * fx + fy * fy < r * r) return;              /* the screen sits wholly inside it */
+  if (r < 700) { s.used = true; s.p.moveTo(cx + r, cy); s.p.arc(cx, cy, r, 0, Math.PI * 2); s.lx = NaN; return; }
+  for (let i = 0; i < 8; i++) addArc(s, cx, cy, r, i * Math.PI / 4, Math.PI / 4, 0);
+}
+function addArc(s, cx, cy, r, a, span, d){
+  const x0 = cx + r * Math.cos(a), y0 = cy + r * Math.sin(a), x1 = cx + r * Math.cos(a + span), y1 = cy + r * Math.sin(a + span);
+  const h = 2 * r * Math.sin(span / 4) ** 2;          /* how far the arc bulges past its chord */
+  if (outside(Math.min(x0, x1) - h, Math.min(y0, y1) - h, Math.max(x0, x1) + h, Math.max(y0, y1) + h)) return;
+  if (r * span > 400 && d < 48) { addArc(s, cx, cy, r, a, span / 2, d + 1); addArc(s, cx, cy, r, a + span / 2, span / 2, d + 1); return; }
+  /* short enough that a quadratic through the tangents' meeting point is within a hair of the true arc;
+     worked out here in full precision, so far-off centres never wobble */
+  const m = a + span / 2, q = r / Math.cos(span / 2);
+  startAt(s, x0, y0); s.p.quadraticCurveTo(cx + q * Math.cos(m), cy + q * Math.sin(m), x1, y1); s.lx = x1; s.ly = y1;
+}
 
 /* GitNexus look: flat discs on a near-black void, thin curved edges, one hairline orbit per body.
    With something lit, the rest shrinks and fades, and the lit body and its neighbours grow. */
@@ -147,30 +218,40 @@ function draw(){
      loses precision at the very large zooms needed for deep moons */
   const k = c.k, X = b => c.x + k * b.x, Y = b => c.y + k * b.y;
   const onScreen = (x, y, r) => x + r > -40 && y + r > -40 && x - r < W + 40 && y - r < H + 40;
+  VIEW.x0 = -40; VIEW.y0 = -40; VIEW.x1 = W + 40; VIEW.y1 = H + 40;
+  /* With many lines on the map, the unlit ones are drawn one screen pixel wide: browsers draw such
+     hairlines (dashed ones above all) several times faster than anything thicker, and in a crowd
+     the thinner lines read better anyway. Lit lines keep their full weight. */
+  const crowded = O.links.length + O.ringCount > 500, hair = 1 / DPR;
+  const thin = w => crowded ? Math.min(w, hair) : w;
+  /* the same goes for lit lines when hundreds are lit at once (a sun with a thousand moons, say) */
+  const manyLit = !!lit && lit.links.size + lit.rings.size > 300, litW = w => manyLit ? thin(1) : w;
   /* orbits: hairlines, one per body */
-  for (const b of O.order) for (const ring of b.rings) {
-    const x = X(b), y = Y(b), rr = ring.r * k;
-    if (rr < 1.5 || !onScreen(x, y, rr) || rr > 4 * Math.hypot(W, H) + Math.hypot(x - W / 2, y - H / 2)) continue;
-    const on = lit?.rings.has(ring.id);
-    ctx.globalAlpha = lit ? (on ? 0.55 : 0.04) : (b.depth === 0 ? 0.16 : 0.12);
-    ctx.strokeStyle = colour(ring.color); ctx.lineWidth = on ? 1.3 : 0.8;
-    ctx.setLineDash(ring.grp.folded ? [3, 4] : []);
-    ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.stroke();
+  for (const b of O.order) {
+    if (!b.rings.length) continue;
+    const x = X(b), y = Y(b), a = b.depth === 0 ? 0.16 : 0.12;
+    let lastR = -Infinity;
+    for (const ring of b.rings) {
+      const rr = ring.r * k, on = lit?.rings.has(ring.id);
+      /* orbits closer than two pixels on screen cannot be told apart: draw one of them (zoom in to see each);
+         a lit orbit is always drawn, unless hundreds are lit at once */
+      if (rr < 1.5 || (rr - lastR < 2 && !(on && !manyLit))) continue;
+      lastR = rr;
+      queueRing(pen(colour(ring.color), lit ? (on ? 0.55 : 0.04) : a, on ? litW(1.3) : thin(0.8), ring.grp.folded ? "fold" : "none"), x, y, rr);
+    }
   }
-  ctx.setLineDash([]);
+  flushPens();
   /* edges: curved, like Sigma's curved edge program */
   for (const l of O.links) {
     const on = lit?.links.has(l.id), ax = X(l.a), ay = Y(l.a), bx = X(l.b), by = Y(l.b);
-    if (Math.max(ax, bx) < -40 || Math.max(ay, by) < -40 || Math.min(ax, bx) > W + 40 || Math.min(ay, by) > H + 40) continue;
-    if (Math.hypot(bx - ax, by - ay) < 1) continue;
-    ctx.globalAlpha = lit ? (on ? 0.95 : 0.04) : (l.kind === "spoke" ? 0.32 : 0.45);
-    ctx.strokeStyle = colour(l.color); ctx.lineWidth = on ? 2.4 : l.kind === "spoke" ? 0.9 : 1.1;
-    ctx.setLineDash(l.kind === "spoke" ? (l.inh ? [3, 4] : []) : [5, 5]);
-    const dx = bx - ax, dy = by - ay, bend = l.kind === "spoke" ? 0.1 : l.kind === "extra" ? 0.18 : 0.26;
-    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo((ax + bx) / 2 - dy * bend, (ay + by) / 2 + dx * bend, bx, by);
-    ctx.stroke();
+    const dx = bx - ax, dy = by - ay;
+    if (Math.abs(dx) + Math.abs(dy) < 1) continue;
+    const bend = l.kind === "spoke" ? 0.1 : l.kind === "extra" ? 0.18 : 0.26;
+    const alpha = lit ? (on ? 0.95 : 0.04) : (l.kind === "spoke" ? 0.32 : 0.45);
+    const dash = l.kind === "spoke" ? (l.inh ? "inh" : "none") : "cross";
+    queueCurve(pen(colour(l.color), alpha, on ? litW(2.4) : thin(l.kind === "spoke" ? 0.9 : 1.1), dash), ax, ay, (ax + bx) / 2 - dy * bend, (ay + by) / 2 + dx * bend, bx, by);
   }
-  ctx.setLineDash([]);
+  flushPens();
   /* bodies that are folding away */
   for (const g of O.ghosts) { const x = X(g), y = Y(g), r = g.size * k * g.life; if (r < 0.3 || !onScreen(x, y, r)) continue; ctx.globalAlpha = Math.max(0, g.life) * 0.6 * (lit ? 0.2 : 1); ctx.fillStyle = colour(g.color); ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); }
   /* bodies */
@@ -207,24 +288,52 @@ function draw(){
   ctx.globalAlpha = 1;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   drawLabels(lit);
-  $("status").textContent = A.src ? `${O.order.filter(b => b.type !== "group").length} of ${A.src.total.toLocaleString()} ${A.src.mode === "tree" ? "elements" : "types"} shown · ${O.order.reduce((s, b) => s + b.rings.length, 0)} orbits` : "";
-  $("zoomPct").textContent = A.src ? `zoom ${Math.round(c.k * 100)}%` : "";
+  /* touching the page every frame would force a layout every frame */
+  setText("status", A.src ? `${O.shown} of ${A.src.total.toLocaleString()} ${A.src.mode === "tree" ? "elements" : "types"} shown · ${O.ringCount} orbits` : "");
+  setText("zoomPct", A.src ? `zoom ${Math.round(c.k * 100)}%` : "");
 }
+const shownText = new Map();
+function setText(id, t){ if (shownText.get(id) !== t) { shownText.set(id, t); $(id).textContent = t; } }
 const S = (b) => [A.cam.x + A.cam.k * b.x, A.cam.y + A.cam.k * b.y];
 
 /* Labels are placed most important first; one that would overlap a placed label tries other sides, then is skipped. */
+/* Placed labels are filed in a coarse screen grid, so each new label is checked only against its neighbours. */
+const CELL = 64;
+function labelGrid(){
+  const cols = Math.ceil((W + 100) / CELL) + 1, rows = Math.ceil((H + 40) / CELL) + 1, cells = new Map();
+  const span = r => [Math.max(0, Math.floor((r.x + 50) / CELL)), Math.max(0, Math.floor((r.y + 20) / CELL)),
+    Math.min(cols - 1, Math.floor((r.x + r.w + 50) / CELL)), Math.min(rows - 1, Math.floor((r.y + r.h + 20) / CELL))];
+  return {
+    free(r){
+      if (r.x < -50 || r.y < -20 || r.x > W + 50 || r.y > H + 20) return false;
+      const [c0, r0, c1, r1] = span(r);
+      for (let cy = r0; cy <= r1; cy++) for (let cx = c0; cx <= c1; cx++) {
+        const list = cells.get(cy * cols + cx); if (!list) continue;
+        for (const p of list) if (r.x < p.x + p.w && r.x + r.w > p.x && r.y < p.y + p.h && r.y + r.h > p.y) return false;
+      }
+      return true;
+    },
+    add(r){
+      if (r.x + r.w < -50 || r.y + r.h < -20 || r.x > W + 50 || r.y > H + 20) return;
+      const [c0, r0, c1, r1] = span(r);
+      for (let cy = r0; cy <= r1; cy++) for (let cx = c0; cx <= c1; cx++) { const i = cy * cols + cx; const list = cells.get(i); if (list) list.push(r); else cells.set(i, [r]); }
+    }
+  };
+}
 function drawLabels(lit){
-  const O = A.O, k = A.cam.k, placed = [];
-  const free = r => { if (r.x < -50 || r.y < -20 || r.x > W + 50 || r.y > H + 20) return false; for (const p of placed) if (r.x < p.x + p.w && r.x + r.w > p.x && r.y < p.y + p.h && r.y + r.h > p.y) return false; return true; };
+  const O = A.O, k = A.cam.k, grid = labelGrid(), free = r => grid.free(r);
   const pill = (x, y, w, h, stroke, lw = 1) => { ctx.fillStyle = "#12121c"; ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.beginPath(); ctx.roundRect(x, y, w, h, 4); ctx.fill(); ctx.stroke(); };
   /* bodies' circles block labels too, so names never sit on top of a planet */
-  for (const b of O.order) { const [x, y] = S(b), r = b.size * k * bodyScale(b, lit); if (r > 3) placed.push({ x:x - r, y:y - r, w:2 * r, h:2 * r }); }
+  for (const b of O.order) { const [x, y] = S(b), r = b.size * k * bodyScale(b, lit); if (r > 3) grid.add({ x:x - r, y:y - r, w:2 * r, h:2 * r }); }
+  /* a label sits at most a pill's width from its body; anything further off screen cannot be placed */
+  const near = (x, y, r) => x + r + 420 > -50 && y + r + 60 > -20 && x - r - 420 < W + 50 && y - r - 60 < H + 20;
   const cands = [];
   for (const b of O.order) {
     const on = lit?.nodes.has(b.id);
     if (lit && !on && b.depth > 0) continue;
     const r = b.size * k;
     if (!on && b.depth > 1 && r < 3.2) continue;
+    if (b.depth > 0) { const [x, y] = S(b); if (!near(x, y, r * 1.5)) continue; }
     const pri = lit && b.id === lit.d.id && b.depth ? -2e9 : b.depth === 0 ? -1e9 : (on ? 0 : 1e6) + (b.id === A.sel || b.id === A.hover ? 0 : 1e5) + b.depth * 1e3 - b.size;
     cands.push([pri, b]);
   }
@@ -237,7 +346,7 @@ function drawLabels(lit){
       const t = clip(b.label, 40), w = textW(t, SUN) + 18, h = 24;
       const rect = { x:x - w / 2, y:y + r + 8, w, h };
       if (!free(rect) && lit) continue;
-      placed.push(rect); ctx.font = SUN; pill(rect.x, rect.y, w, h, colour(b.color), 2);
+      grid.add(rect); ctx.font = SUN; pill(rect.x, rect.y, w, h, colour(b.color), 2);
       ctx.fillStyle = "#f5f5f7"; ctx.textAlign = "center"; ctx.fillText(t, x, rect.y + h / 2 + 0.5); ctx.textAlign = "left";
       continue;
     }
@@ -248,7 +357,7 @@ function drawLabels(lit){
     for (const [lx, ly] of tries) {
       const rect = { x:lx, y:ly, w, h };
       if (!free(rect) && !main) continue;
-      placed.push(rect);
+      grid.add(rect);
       ctx.font = font;
       if (hot) { pill(lx, ly, w, h, colour(b.color) + (main ? "" : "99"), main ? 2 : 1); ctx.fillStyle = "#f5f5f7"; ctx.fillText(t, lx + 8, ly + h / 2 + 0.5); }
       else { ctx.fillStyle = b.depth <= 1 ? "rgba(228,228,237,.9)" : "rgba(136,136,160,.9)"; ctx.fillText(t, lx + 2, ly + h / 2 + 0.5); }
@@ -265,7 +374,7 @@ function drawLabels(lit){
     for (const [dx, dy] of [[0, 0], [0, -16], [0, 16], [0, -32], [0, 32], [w * 0.6, 0], [-w * 0.6, 0]]) {
       const rect = { x:mx - w / 2 + dx, y:my - h / 2 + dy, w, h };
       if (!free(rect)) continue;
-      placed.push(rect); pill(rect.x, rect.y, w, h, colour(l.color) + "77");
+      grid.add(rect); pill(rect.x, rect.y, w, h, colour(l.color) + "77");
       ctx.font = MONO_S; ctx.fillStyle = colour(l.color); ctx.fillText(l.short, rect.x + 5, rect.y + h / 2 + 0.5);
       break;
     }
@@ -278,7 +387,7 @@ function drawLabels(lit){
     const g = ring.grp, t = `${g.title} · ${g.count}${g.folded ? " (folded)" : ""}`, w = textW(t, MONO_S) + 6;
     const rect = { x:x - w / 2, y:y - rr - 8, w, h:15 };
     if (!free(rect)) continue;
-    placed.push(rect); ctx.globalAlpha = lit && !lit.rings.has(ring.id) ? 0.25 : 0.85;
+    grid.add(rect); ctx.globalAlpha = lit && !lit.rings.has(ring.id) ? 0.25 : 0.85;
     ctx.font = MONO_S; ctx.fillStyle = colour(ring.color); ctx.fillText(t, rect.x + 3, rect.y + 7.5); ctx.globalAlpha = 1;
   }
 }
@@ -478,7 +587,8 @@ function reveal(id){
   if (b.parent) A.followK = Math.min(1e5, Math.max(A.followK || A.cam.k, 8 / Math.max(1e-4, b.size)));
 }
 let resIdx = -1;
-$("q").addEventListener("input", () => showResults());
+let qTimer = 0;
+$("q").addEventListener("input", () => { clearTimeout(qTimer); qTimer = setTimeout(showResults, A.src && A.src.total > 50000 ? 120 : 0); });
 $("q").addEventListener("focus", () => { if ($("q").value.trim()) showResults(); });
 $("q").addEventListener("keydown", e => {
   const items = [...$("results").querySelectorAll("button[data-r]")];
@@ -527,9 +637,23 @@ function setSource(src){
   renderLegend();
   $("modeLinks").setAttribute("aria-pressed", src.mode === "links"); $("modeTree").setAttribute("aria-pressed", src.mode === "tree");
   $("q").placeholder = src.mode === "links" ? "Search types…" : "Search elements…";
-  $("ready").textContent = src.mode === "links" ? "Catalogue · by meaning" : "XML tree";
+  setText("ready", src.mode === "links" ? "Catalogue · by meaning" : "XML tree");
   requestAnimationFrame(() => fit(false));
+  warmSearch(src);
 }
+/* build the search index in idle moments, so the first search in a big file is instant */
+const whenIdle = f => window.requestIdleCallback ? requestIdleCallback(f, { timeout:1000 }) : setTimeout(f, 40);
+function warmSearch(src){
+  if (!src.warm) return;
+  const go = () => { if (A.src === src && !src.warm(8)) whenIdle(go); };
+  whenIdle(go);
+}
+/* reading a big file blocks the page for a moment: say so first, and let the message paint */
+async function busy(msg){
+  setText("ready", msg); $("foot").classList.add("busy");
+  await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+}
+function idle(){ $("foot").classList.remove("busy"); if (A.src) setText("ready", A.src.mode === "links" ? "Catalogue · by meaning" : "XML tree"); }
 function loadText(text, name){
   const doc = new DOMParser().parseFromString(text, "application/xml");
   /* the browser reports bad XML as an XHTML <parsererror> element; an element of that name in the file itself is fine */
@@ -552,13 +676,18 @@ function loadText(text, name){
 let loadSeq = 0;
 async function loadFile(file){
   A.userLoaded = true; loadSeq++;
-  try { const buf = await file.arrayBuffer(); loadText(XO.fc.decode(buf), file.name); }
+  const my = loadSeq;
+  await busy("Reading " + clip(file.name, 40) + (file.size > 1e6 ? " (" + (file.size / 1e6).toFixed(1) + " MB)" : "") + "…");
+  try { const buf = await file.arrayBuffer(); if (my === loadSeq) loadText(XO.fc.decode(buf), file.name); }
   catch (err) { showErr("Could not open " + file.name + ": " + err.message); }
+  finally { if (my === loadSeq) idle(); }
 }
 function showErr(msg){ if (A.src) note(msg); else { $("welcome").hidden = false; $("err").textContent = msg; $("err").hidden = false; } }
 async function loadSample(url = SAMPLE){
   const my = ++loadSeq;
-  try { const r = await fetch(url); if (!r.ok) throw new Error("HTTP " + r.status); const buf = await r.arrayBuffer(); if (A.userLoaded || my !== loadSeq) return; loadText(XO.fc.decode(buf), url); }
+  try { const r = await fetch(url); if (!r.ok) throw new Error("HTTP " + r.status); const buf = await r.arrayBuffer(); if (A.userLoaded || my !== loadSeq) return;
+    await busy("Reading the example…"); if (A.userLoaded || my !== loadSeq) return;
+    try { loadText(XO.fc.decode(buf), url); } finally { idle(); } }
   catch (err) {
     if (my !== loadSeq) return;
     if (A.src) { note(location.protocol === "file:" ? "Examples need this folder served (./serve.sh). Open a file instead." : "Could not load the example: " + err.message); return; }
@@ -616,7 +745,7 @@ window.addEventListener("drop", e => { e.preventDefault(); dragDepth = 0; $("dro
 document.addEventListener("paste", e => {
   if (e.target.closest?.("input,textarea")) return;
   const t = e.clipboardData?.getData("text") || "";
-  if (t.trim().startsWith("<")) { A.userLoaded = true; loadSeq++; try { loadText(t, "pasted XML"); } catch (err) { showErr(err.message); } }
+  if (t.trim().startsWith("<")) { A.userLoaded = true; const my = ++loadSeq; busy("Reading pasted XML…").then(() => { if (my !== loadSeq) return; try { loadText(t, "pasted XML"); } catch (err) { showErr(err.message); } finally { idle(); } }); }
 });
 window.addEventListener("resize", () => { resize(); });
 if (innerWidth < 1100) $("legend").open = false;

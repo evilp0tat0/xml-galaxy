@@ -95,6 +95,10 @@ class Orbits {
     if (this.ghosts.length > 400) this.ghosts.splice(0, this.ghosts.length - 400);
     for (const b of order) if (b.fresh) { const p = b.parent; b.x = p ? p.x : 0; b.y = p ? p.y : 0; b.fresh = false; }
     this.bodies = next; this.order = order; this.links = links; this.root = root;
+    /* bumped on every rebuild, so anything worked out from the map can be cached against it */
+    this.version = (this.version || 0) + 1;
+    this.shown = order.reduce((s, b) => s + (b.type === "group" ? 0 : 1), 0);
+    this.ringCount = order.reduce((s, b) => s + b.rings.length, 0);
     return this;
   }
 

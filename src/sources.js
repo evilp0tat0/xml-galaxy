@@ -23,16 +23,28 @@ const REF_ATTR = n => /^(ref|href|idref|idrefs|target|refid|xref)$/i.test(n) || 
 
 function xmlSource(doc, fileName){
   const E = [];              /* index → element record */
-  const byEl = new Map();
-  /* iterative walk, so very deep files cannot overflow the stack; tags keep their prefix (a:item and b:item differ) */
+  const tagCount = new Map(), ids = new Map(), refCands = [];
+  const isRef = new Map();   /* attribute local name → is it a reference? (asked once per name, not per attribute) */
+  /* One walk does everything that needs every element: records, tag counts, ids and references.
+     It is iterative, so very deep files cannot overflow the stack; tags keep their prefix (a:item and b:item differ). */
   (function walk(rootEl){
-    const stack = [[rootEl, null, 0]];
-    while (stack.length) {
-      const [el, parent, depth] = stack.pop();
-      const rec = { i:E.length, el, parent, depth, tag:el.nodeName, kids:[], desc:0 };
-      E.push(rec); byEl.set(el, rec);
+    const els = [rootEl], parents = [null];
+    while (els.length) {
+      const el = els.pop(), parent = parents.pop();
+      const rec = { i:E.length, el, parent, depth:parent ? parent.depth + 1 : 0, tag:el.nodeName, kids:[], desc:0, key:undefined, label:undefined };
+      E.push(rec);
       if (parent) parent.kids.push(rec);
-      for (let c = el.lastElementChild; c; c = c.previousElementSibling) stack.push([c, rec, depth + 1]);
+      tagCount.set(rec.tag, (tagCount.get(rec.tag) || 0) + 1);
+      if (el.hasAttributes()) {
+        const at = el.attributes;
+        for (let j = 0; j < at.length; j++) {
+          const a = at[j], ln = a.localName;
+          if (ID_ATTRS.has(a.name) || ln === "id") { ids.set(a.value, rec); continue; }
+          let r = isRef.get(ln); if (r === undefined) isRef.set(ln, r = REF_ATTR(ln));
+          if (r) refCands.push(rec, a.name, a.value);
+        }
+      }
+      for (let c = el.lastElementChild; c; c = c.previousElementSibling) { els.push(c); parents.push(rec); }
     }
     for (let i = E.length - 1; i > 0; i--) E[i].parent.desc += E[i].desc + 1;
   })(doc.documentElement);
@@ -40,89 +52,110 @@ function xmlSource(doc, fileName){
   const rec = idv => E[+String(idv).slice(1)];
 
   /* colour per tag, most common tags get the most distinct colours */
-  const tagCount = new Map();
-  for (const r of E) tagCount.set(r.tag, (tagCount.get(r.tag) || 0) + 1);
   const tags = [...tagCount.keys()].sort((a, b) => tagCount.get(b) - tagCount.get(a));
   const palette = new Map(tags.map((t, i) => ["t:" + t, { color:PALETTE[i % PALETTE.length], title:"<" + t + ">", count:tagCount.get(t) }]));
   palette.set("ref", { color:"#22d3ee", title:"Points to (id reference)" });
 
-  /* a short human name for an element: its tag plus a telling attribute or child */
+  /* a short human name for an element: its tag plus a telling attribute or child.
+     Worked out only when something asks for it: a big file has far more elements than are ever shown. */
   function keyOf(r){
     const el = r.el;
-    for (const a of KEY_ATTRS) { const v = el.getAttribute(a); if (v) return v; }
-    for (const at of el.attributes) if (at.localName === "id" || at.localName === "name") return at.value;
-    for (const at of el.attributes) if (REF_ATTR(at.localName)) return "→ " + at.value.replace(/^#/, "");
-    for (const c of el.children) if (KEY_CHILDREN.includes(c.localName) && !c.children.length) { const v = c.textContent.trim(); if (v) return v; }
-    if (!el.children.length) { const v = el.textContent.trim(); if (v) return v; }
+    if (el.hasAttributes()) {
+      for (const a of KEY_ATTRS) { const v = el.getAttribute(a); if (v) return v; }
+      for (const at of el.attributes) if (at.localName === "id" || at.localName === "name") return at.value;
+      for (const at of el.attributes) if (REF_ATTR(at.localName)) return "→ " + at.value.replace(/^#/, "");
+    }
+    if (!el.firstElementChild) return el.textContent.trim();
+    for (let c = el.firstElementChild; c; c = c.nextElementSibling) if (KEY_CHILDREN.includes(c.localName) && !c.firstElementChild) { const v = c.textContent.trim(); if (v) return v; }
     return "";
   }
-  for (const r of E) { r.key = keyOf(r); r.label = r.key ? r.tag + " · " + clip(r.key, 40) : r.tag; }
+  const key = r => { if (r.key === undefined) r.key = keyOf(r); return r.key; };
+  const label = r => { if (r.label === undefined) { const k = key(r); r.label = k ? r.tag + " · " + clip(k, 40) : r.tag; } return r.label; };
 
-  /* id / idref links */
-  const ids = new Map();
-  for (const r of E) for (const at of r.el.attributes) if (ID_ATTRS.has(at.name) || at.localName === "id") ids.set(at.value, r);
+  /* id / idref links, resolved once every id is known */
   const out = new Map(), inn = new Map(), broken = new Map();
-  for (const r of E) for (const at of r.el.attributes) {
-    if (!REF_ATTR(at.localName) || ID_ATTRS.has(at.name)) continue;
-    for (const raw of at.value.split(/\s+/)) {
+  for (let j = 0; j < refCands.length; j += 3) {
+    const r = refCands[j], attr = refCands[j + 1];
+    for (const raw of refCands[j + 2].split(/\s+/)) {
       const v = raw.replace(/^#/, ""), t = ids.get(v);
       if (!v || t === r) continue;
-      if (!t) { (broken.get(r) || broken.set(r, []).get(r)).push({ attr:at.name, v }); continue; }
-      (out.get(r) || out.set(r, []).get(r)).push({ to:t, attr:at.name });
-      (inn.get(t) || inn.set(t, []).get(t)).push({ from:r, attr:at.name });
+      if (!t) { (broken.get(r) || broken.set(r, []).get(r)).push({ attr, v }); continue; }
+      (out.get(r) || out.set(r, []).get(r)).push({ to:t, attr });
+      (inn.get(t) || inn.set(t, []).get(t)).push({ from:r, attr });
     }
   }
+
+  /* Search runs over one lower-case string per element (tag, name, attribute values), built once.
+     warm() builds it a slice at a time while the page is idle, so the first search does not stall. */
+  const hay = [];
+  function warm(ms = 1e9){
+    const t0 = performance.now();
+    while (hay.length < E.length) {
+      const r = E[hay.length], parts = [r.tag, key(r)];
+      if (r.el.hasAttributes()) for (const at of r.el.attributes) parts.push(at.value);
+      hay.push(parts.join("\u0000").toLowerCase());
+      if ((hay.length & 511) === 0 && performance.now() - t0 > ms) return false;
+    }
+    return true;
+  }
+  /* where an element sits among same-tag siblings, counted once per parent */
+  function nth(x){
+    const p = x.parent; if (!p) return [1, 1];
+    if (!p.same) { p.same = new Map(); for (const k of p.kids) { const c = (p.same.get(k.tag) || 0) + 1; p.same.set(k.tag, c); k.nth = c; } }
+    return [x.nth, p.same.get(x.tag)];
+  }
+  function xpath(r){
+    const parts = [];
+    for (let x = r; x; x = x.parent) { const [i, n] = nth(x); parts.unshift(x.tag + (n > 1 ? "[" + i + "]" : "")); }
+    return "/" + parts.join("/");
+  }
+  const groupMemo = new Map();
 
   const size = r => r.depth === 0 ? 26 : Math.min(17, 4.5 + 2.3 * Math.log2(1 + r.desc));
   return {
     mode:"tree", fileName, palette, total:E.length, rootId:id(E[0]),
     title:"<" + E[0].tag + ">",
+    warm,
     has: x => !!rec(x),
-    node(x){ const r = rec(x); return r && { id:x, label:r.label, color:"t:" + r.tag, size:size(r), kind:"<" + r.tag + ">" }; },
+    node(x){ const r = rec(x); return r && { id:x, label:label(r), color:"t:" + r.tag, size:size(r), kind:"<" + r.tag + ">" }; },
     canOpen: x => { const r = rec(x); return !!r && r.kids.length > 0; },
     groups(x){
       const r = rec(x); if (!r) return [];
-      const by = new Map();
-      for (const k of r.kids) { if (!by.has(k.tag)) by.set(k.tag, []); by.get(k.tag).push(k); }
-      return [...by].map(([tag, ks]) => ({ key:"t:" + tag, title:"<" + tag + ">", color:"t:" + tag,
-        entries:ks.map(k => ({ id:id(k), short:"", label:"child <" + tag + ">" })) }));
+      let gs = groupMemo.get(r);
+      if (!gs) {
+        const by = new Map();
+        for (const k of r.kids) { let l = by.get(k.tag); if (!l) by.set(k.tag, l = []); l.push(k); }
+        gs = [...by].map(([tag, ks]) => ({ key:"t:" + tag, title:"<" + tag + ">", color:"t:" + tag,
+          entries:ks.map(k => ({ id:id(k), short:"", label:"child <" + tag + ">" })) }));
+        groupMemo.set(r, gs);
+      }
+      return gs;
     },
-    refs(x){ const r = rec(x); return (out.get(r) || []).map(o => ({ to:id(o.to), color:"ref", short:"@" + o.attr, label:o.attr + " → " + o.to.label })); },
+    refs(x){ const r = rec(x); return (out.get(r) || []).map(o => ({ to:id(o.to), color:"ref", short:"@" + o.attr, label:o.attr + " → " + label(o.to) })); },
     pathTo(x){ const c = []; for (let r = rec(x); r; r = r.parent) c.unshift(id(r)); return c; },
     search(q){
       q = q.trim().toLowerCase(); if (!q) return [];
+      warm();
       const res = [];
-      for (const r of E) {
-        if (r.tag.toLowerCase().includes(q) || r.key.toLowerCase().includes(q)) res.push(r);
-        else for (const at of r.el.attributes) if (at.value.toLowerCase().includes(q)) { res.push(r); break; }
-        if (res.length >= 40) break;
-      }
-      return res.map(r => ({ id:id(r), label:r.label, sub:xpath(r) }));
+      for (let i = 0; i < hay.length && res.length < 40; i++) if (hay[i].includes(q)) res.push(E[i]);
+      return res.map(r => ({ id:id(r), label:label(r), sub:xpath(r) }));
     },
     info(x){
       const r = rec(x); if (!r) return null;
       const direct = [...r.el.childNodes].filter(n => n.nodeType === 3 || n.nodeType === 4).map(n => n.nodeValue).join("").trim();
       const kidTags = new Map(); for (const k of r.kids) kidTags.set(k.tag, (kidTags.get(k.tag) || 0) + 1);
       return {
-        kind:"Element <" + r.tag + ">" + (r.depth === 0 ? " · the centre" : ""), title:r.key || r.tag, code:xpath(r),
+        kind:"Element <" + r.tag + ">" + (r.depth === 0 ? " · the centre" : ""), title:key(r) || r.tag, code:xpath(r),
         def: direct ? clip(direct, 600) : "",
         attrs:[...r.el.attributes].map(a => [a.name, a.value]),
         facts:[r.desc ? r.desc + " elements inside" : "no child elements", r.el.namespaceURI ? "ns " + r.el.namespaceURI : ""].filter(Boolean),
         orbits:[...kidTags].map(([t, n]) => ({ color:"t:" + t, title:"<" + t + ">", count:n })),
-        linksOut:(out.get(r) || []).map(o => ({ id:id(o.to), text:"@" + o.attr + " → " + o.to.label, color:"ref" })),
-        linksIn:(inn.get(r) || []).map(o => ({ id:id(o.from), text:o.from.label + " @" + o.attr, color:"ref" })),
+        linksOut:(out.get(r) || []).map(o => ({ id:id(o.to), text:"@" + o.attr + " → " + label(o.to), color:"ref" })),
+        linksIn:(inn.get(r) || []).map(o => ({ id:id(o.from), text:label(o.from) + " @" + o.attr, color:"ref" })),
         broken:(broken.get(r) || []).map(b => "@" + b.attr + " → " + b.v + " (not found in this file)")
       };
     }
   };
-  function xpath(r){
-    const parts = [];
-    for (let x = r; x; x = x.parent) {
-      const same = x.parent ? x.parent.kids.filter(k => k.tag === x.tag) : [x];
-      parts.unshift(x.tag + (same.length > 1 ? "[" + (same.indexOf(x) + 1) + "]" : ""));
-    }
-    return "/" + parts.join("/");
-  }
 }
 
 /* ---------------- S-100 Feature Catalogue: the chosen type is the sun, linked types orbit it by kind of link ---------------- */
@@ -138,7 +171,8 @@ function catalogueSource(FC, startKey, fileName){
   const catKey = c => "c:" + ({ used:"in", parts:"attr", assoc:"roles" }[c] || c);
   const vals = new Map(), missing = new Map();
   const nid = e => e.val ? "v:" + e.attr.code + ":" + e.val.code : e.item.missing ? "x:" + e.item.code : F.keyOf(e.item);
-  const root = FC.by.get(startKey);
+  const root = FC.by.get(startKey), groupMemo = new Map();
+  let reach = null;
   return {
     mode:"links", fileName, palette, total:FC.items.length, rootId:startKey, FC,
     title:root.name || root.code,
@@ -153,23 +187,29 @@ function catalogueSource(FC, startKey, fileName){
     canOpen: x => { const it = FC.by.get(x); return !!it && F.branches(it).length > 0; },
     groups(x){
       const it = FC.by.get(x); if (!it) return [];
-      return F.branches(it).map(g => ({ key:g.cat, title:F.CAT[g.cat].title, color:catKey(g.cat),
+      let gs = groupMemo.get(x);
+      if (!gs) groupMemo.set(x, gs = F.branches(it).map(g => ({ key:g.cat, title:F.CAT[g.cat].title, color:catKey(g.cat),
         entries:g.entries.map(e => { const i = nid(e); if (e.val) vals.set(i, e); else if (e.item.missing) missing.set(i, e.item.code);
-          return { id:i, short:clip(e.short ?? e.label ?? "", 30), label:e.label || "", inherited:!!e.inherited }; }) }));
+          return { id:i, short:clip(e.short ?? e.label ?? "", 30), label:e.label || "", inherited:!!e.inherited }; }) })));
+      return gs;
     },
     refs: () => [],
     pathTo(x){
       const t = FC.by.get(x); if (!t) return null;
       if (t === root) return [startKey];
-      /* follow only links that groups() shows as orbits, so the path can always be opened */
-      const prev = new Map([[root, null]]), q = [root];
-      while (q.length && !prev.has(t)) {
-        const x = q.shift();
-        for (const g of F.branches(x)) for (const e of g.entries) {
-          const it = e.item; if (!it || it.missing || prev.has(it)) continue;
-          prev.set(it, x); q.push(it);
+      /* follow only links that groups() shows as orbits, so the path can always be opened;
+         the whole breadth-first tree from the sun is walked once and kept */
+      if (!reach) {
+        reach = new Map([[root, null]]); const q = [root];
+        for (let i = 0; i < q.length; i++) {
+          const x = q[i];
+          for (const g of F.branches(x)) for (const e of g.entries) {
+            const it = e.item; if (!it || it.missing || reach.has(it)) continue;
+            reach.set(it, x); q.push(it);
+          }
         }
       }
+      const prev = reach;
       if (!prev.has(t)) return null;
       const out = []; for (let x = t; x; x = prev.get(x)) out.unshift(F.keyOf(x));
       return out;

@@ -127,6 +127,8 @@ body:has(.side:not([hidden])) .ctrls{right:calc(min(380px,100vw) + 14px)}
 .status{position:fixed;z-index:6;left:0;right:0;bottom:0;min-height:calc(var(--foot) + env(safe-area-inset-bottom,0px));padding:0 max(16px,env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0px) max(16px,env(safe-area-inset-left,0px));display:flex;align-items:center;justify-content:space-between;gap:16px;background:var(--deep);border-top:1px dashed var(--line);font:11px var(--font-mono);color:var(--faint);white-space:nowrap;overflow:hidden}
 .status .ready{flex:none;display:flex;align-items:center;gap:7px}
 .status .ready::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--ok)}
+.status.busy .ready::before{background:var(--warn);animation:blink 1s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){.status.busy .ready::before{animation:none}}
 .status span{overflow:hidden;text-overflow:ellipsis}
 
 .welcome{left:50%;top:50%;transform:translate(-50%,-50%);width:min(560px,calc(100vw - 32px));padding:26px;display:flex;flex-direction:column;gap:12px;background:var(--surface);border-radius:14px}

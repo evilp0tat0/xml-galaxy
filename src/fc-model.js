@@ -198,7 +198,14 @@ const CAT = {
 const shortText = b => [b.role && "role " + b.role, b.mult?.text].filter(Boolean).join(" · ");
 const linkText = b => [b.assocItem?.name || b.assoc, b.role && "role " + b.role, b.mult?.text].filter(Boolean).join(" · ");
 
+/* The catalogue never changes once read, so each type's branches are worked out once and kept. */
+const branchMemo = new WeakMap();
 function branches(it){
+  let G = branchMemo.get(it);
+  if (!G || G.inherited !== state.inherited) { G = branchesOf(it); G.inherited = state.inherited; branchMemo.set(it, G); }
+  return G;
+}
+function branchesOf(it){
   const G = [];
   const ent = (item, extra) => ({ item: item || null, ...extra });
   const k = it.kind;
