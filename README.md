@@ -6,6 +6,10 @@ S-100 Feature Catalogues (such as the IALA S-201 `201_Feature_Catalogue_2.0.0.xm
 
 No build step, no install, no network at runtime (fonts fall back to system fonts offline).
 
+## Try it online
+
+<https://evilp0tat0.github.io/xml-orbitree/> (published from `main` by `.github/workflows/pages.yml`).
+
 ## Run it
 
 ```bash
