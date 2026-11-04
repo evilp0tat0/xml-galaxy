@@ -12,8 +12,8 @@ const XO = window.XO = window.XO || {};
 const clip = (t, n) => (t = String(t ?? "")).length > n ? t.slice(0, n - 1) + "…" : t;
 XO.clip = clip;
 
-/* Line and body colours for a dark sky: bright, distinct, readable on near-black. */
-const PALETTE = ["#2dd4bf","#60a5fa","#f472b6","#fbbf24","#a78bfa","#34d399","#fb923c","#38bdf8","#f87171","#c084fc","#a3e635","#e879f9","#facc15","#4ade80","#93c5fd","#fda4af"];
+/* Body colours in the GitNexus node palette (Tailwind 500s): distinct and readable on near-black. */
+const PALETTE = ["#a855f7","#3b82f6","#10b981","#f59e0b","#ec4899","#14b8a6","#f97316","#6366f1","#eab308","#f43f5e","#06b6d4","#8b5cf6","#84cc16","#60a5fa","#fb7185","#a78bfa"];
 
 /* ---------------- any XML: the root element is the sun, child elements orbit their parent ---------------- */
 const KEY_ATTRS = ["name", "id", "code", "key", "title", "label", "type"];
@@ -44,7 +44,7 @@ function xmlSource(doc, fileName){
   for (const r of E) tagCount.set(r.tag, (tagCount.get(r.tag) || 0) + 1);
   const tags = [...tagCount.keys()].sort((a, b) => tagCount.get(b) - tagCount.get(a));
   const palette = new Map(tags.map((t, i) => ["t:" + t, { color:PALETTE[i % PALETTE.length], title:"<" + t + ">", count:tagCount.get(t) }]));
-  palette.set("ref", { color:"#e2e8f0", title:"Points to (id reference)" });
+  palette.set("ref", { color:"#22d3ee", title:"Points to (id reference)" });
 
   /* a short human name for an element: its tag plus a telling attribute or child */
   function keyOf(r){
@@ -75,7 +75,7 @@ function xmlSource(doc, fileName){
 
   const size = r => r.depth === 0 ? 26 : Math.min(17, 4.5 + 2.3 * Math.log2(1 + r.desc));
   return {
-    mode:"tree", mergeRings:true, fileName, palette, total:E.length, rootId:id(E[0]),
+    mode:"tree", fileName, palette, total:E.length, rootId:id(E[0]),
     title:"<" + E[0].tag + ">",
     has: x => !!rec(x),
     node(x){ const r = rec(x); return r && { id:x, label:r.label, color:"t:" + r.tag, size:size(r), kind:"<" + r.tag + ">" }; },
@@ -126,8 +126,8 @@ function xmlSource(doc, fileName){
 }
 
 /* ---------------- S-100 Feature Catalogue: the chosen type is the sun, linked types orbit it by kind of link ---------------- */
-const KIND_COL = { ft:"#2dd4bf", it:"#60a5fa", fa:"#fb923c", ia:"#facc15", ro:"#fb7185", ca:"#a78bfa", sa:"#94a3b8" };
-const CAT_COL = { super:"#a78bfa", sub:"#c4b5fd", in:"#fb923c", used:"#fb923c", feat:"#2dd4bf", info:"#60a5fa", attr:"#64748b", parts:"#64748b", val:"#475569", roles:"#fb7185", assoc:"#fb7185" };
+const KIND_COL = { ft:"#10b981", it:"#3b82f6", fa:"#f59e0b", ia:"#eab308", ro:"#ec4899", ca:"#a855f7", sa:"#64748b" };
+const CAT_COL = { super:"#f97316", sub:"#fdba74", in:"#8b5cf6", used:"#8b5cf6", feat:"#10b981", info:"#3b82f6", attr:"#14b8a6", parts:"#14b8a6", val:"#475569", roles:"#ec4899", assoc:"#ec4899" };
 const PLANET = { ft:13, it:12, fa:10, ia:10, ro:9, ca:10, sa:8 };
 
 function catalogueSource(FC, startKey, fileName){
