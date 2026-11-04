@@ -6,140 +6,192 @@
 <title>XML Orbitree</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@400;500;600;700&display=swap">
 <style>
-/* Layout: one full-screen night sky (canvas). A slim top bar, a colour key bottom-left, a details panel on the right.
-   Deliberately dark only: it is a sky. */
+/* Layout after GitNexus: a header bar, the graph filling the rest, a side panel docked right, a status bar along the bottom.
+   View tabs float at the top of the graph, zoom controls bottom-right. Dark only, like GitNexus. */
 :root{
-  --sky:#07090f;--sky-2:#0d1220;--panel:#0f1524;--panel-2:#141c2e;--line:#1f2a40;
-  --text:#e4e4ed;--muted:#8b95ab;--faint:#5b6478;--accent:#2dd4bf;--accent-ink:#04201c;--warn:#fbbf24;--danger:#f87171;
-  --font-ui:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-  --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  --r:12px;
+  --void:#06060a;--deep:#0a0a10;--surface:#101018;--elevated:#16161f;--hover:#1c1c28;
+  --line:#1e1e2a;--line-2:#2a2a3a;
+  --text:#e4e4ed;--muted:#8888a0;--faint:#5a5a70;
+  --accent:#7c3aed;--accent-dim:#5b21b6;--accent-text:#a78bfa;--pink:#ec4899;--ok:#10b981;--warn:#f59e0b;--danger:#f87171;
+  --font-ui:"Outfit",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-mono:"JetBrains Mono","Fira Code",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --hdr:52px;--foot:30px;
   color-scheme:dark;
 }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
-body{background:var(--sky);color:var(--text);font:14px/1.45 var(--font-ui);overflow:hidden}
-button,input{font:inherit;color:inherit}
+body{background:var(--void);color:var(--text);font:14px/1.45 var(--font-ui);overflow:hidden}
+button,input,select{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 [hidden]{display:none!important}
 code,.mono{font-family:var(--font-mono);font-size:.9em}
+::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:8px}::-webkit-scrollbar-track{background:transparent}
 
 #sky{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
 #sky.grabbing{cursor:grabbing}#sky.pointing{cursor:pointer}
 
-.glass{position:fixed;z-index:5;background:color-mix(in srgb,var(--panel) 88%,transparent);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 10px 40px rgba(0,0,0,.45)}
-.top{top:calc(env(safe-area-inset-top,0px) + 12px);left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;padding:8px 10px}
-.brand{display:flex;align-items:center;gap:9px;margin-right:4px}
-.mark{width:26px;height:26px;flex:none}
-.brand h1{font-size:15px;font-weight:700;margin:0;letter-spacing:.01em;white-space:nowrap}
-.brand h1 span{color:var(--accent)}
-.pill{display:inline-flex;align-items:center;gap:6px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:3px 10px;border-radius:999px;border:1px solid var(--line);background:var(--sky-2);font-size:12px;color:var(--muted)}
-.pill.warn{border-color:transparent;background:#3a2a0a;color:var(--warn)}
-.seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
-.seg button{border:0;background:transparent;padding:5px 11px;font-size:12.5px;color:var(--muted);cursor:pointer}
-.seg button[aria-pressed="true"]{background:var(--panel-2);color:var(--text)}
-.searchwrap{position:relative;flex:1 1 220px;min-width:0;max-width:420px}
-.searchwrap input{width:100%;padding:6px 11px;border:1px solid var(--line);border-radius:9px;background:var(--sky-2)}
-.searchwrap input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(45,212,191,.2)}
-.results{position:absolute;left:0;right:0;top:calc(100% + 6px);max-height:min(60vh,440px);overflow:auto;padding:4px}
-.results button{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;text-align:left;border:0;background:none;padding:6px 9px;border-radius:7px;cursor:pointer}
-.results button:hover,.results button.on{background:var(--panel-2)}
-.results .l{font-size:13px;overflow-wrap:anywhere}
-.results .s{font-size:11px;color:var(--muted);font-family:var(--font-mono);overflow-wrap:anywhere}
+.glass{position:fixed;z-index:5;background:color-mix(in srgb,var(--elevated) 92%,transparent);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+
+/* header */
+.top{position:fixed;z-index:6;top:0;left:0;right:0;min-height:calc(var(--hdr) + env(safe-area-inset-top,0px));padding:calc(env(safe-area-inset-top,0px) + 9px) max(16px,env(safe-area-inset-right,0px)) 9px max(16px,env(safe-area-inset-left,0px));display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;background:var(--deep);border-bottom:1px dashed var(--line)}
+.brand{display:flex;align-items:center;gap:10px;margin-right:4px}
+.mark{width:28px;height:28px;flex:none;display:grid;place-items:center;border-radius:7px;background:linear-gradient(135deg,var(--accent),var(--pink));box-shadow:0 0 20px rgba(124,58,237,.4)}
+.mark svg{width:18px;height:18px}
+.brand h1{font-size:15px;font-weight:600;margin:0;letter-spacing:-.01em;white-space:nowrap}
+.pill{display:inline-flex;align-items:center;gap:7px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surface);font-size:13px;color:var(--muted)}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--ok);flex:none;animation:blink 2s ease-in-out infinite}
+.pill.warn::before{background:var(--warn)}
+@keyframes blink{50%{opacity:.35}}
+.searchwrap{position:relative;flex:1 1 220px;min-width:0;max-width:448px;margin:0 auto}
+.search{display:flex;align-items:center;gap:8px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);transition:border-color .15s}
+.search:focus-within{border-color:color-mix(in srgb,var(--accent) 60%,transparent);box-shadow:0 0 0 3px rgba(124,58,237,.15)}
+.search svg{width:15px;height:15px;color:var(--faint);flex:none}
+.search input{flex:1;min-width:0;padding:7px 0;border:0;background:transparent;outline:none;font-size:13px}
+.search input::placeholder{color:var(--faint)}
+kbd{font:10px var(--font-mono);color:var(--faint);border:1px solid var(--line);background:var(--elevated);border-radius:4px;padding:2px 5px;white-space:nowrap}
+.results{position:absolute;left:0;right:0;top:calc(100% + 6px);max-height:min(60vh,440px);overflow:auto;padding:4px;background:var(--surface)}
+.results button{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;text-align:left;border:0;background:none;padding:7px 10px;border-radius:7px;cursor:pointer}
+.results button:hover,.results button.on{background:var(--hover)}
+.results .l{font-size:13px;font-family:var(--font-mono);overflow-wrap:anywhere}
+.results .s{font-size:11px;color:var(--faint);font-family:var(--font-mono);overflow-wrap:anywhere}
 .results .row{display:flex;gap:4px;align-items:center}
-.results .row button{flex-direction:row;width:auto;font-size:11.5px;padding:2px 8px;border:1px solid var(--line);border-radius:999px}
+.results .row button{flex-direction:row;width:auto;font-size:11.5px;padding:2px 9px;border:1px solid color-mix(in srgb,var(--accent) 35%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent-text);border-radius:6px}
 .results .empty{padding:8px 10px;color:var(--muted);font-size:13px}
-.btn{padding:6px 11px;border-radius:9px;border:1px solid var(--line);background:var(--panel-2);cursor:pointer;font-size:12.5px;white-space:nowrap}
-.btn:hover{border-color:#334160}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
-.spacer{flex:1}
+.btn{padding:6px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-size:13px;white-space:nowrap;color:var(--muted);transition:background .15s,border-color .15s,color .15s}
+.btn:hover{border-color:var(--line-2);background:var(--hover);color:var(--text)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:500}
+.btn.primary:hover{background:#6d28d9;border-color:#6d28d9}
+select.btn{appearance:none;padding-right:26px;background-image:linear-gradient(45deg,transparent 50%,var(--faint) 50%),linear-gradient(135deg,var(--faint) 50%,transparent 50%);background-position:calc(100% - 13px) 55%,calc(100% - 9px) 55%;background-size:4px 4px;background-repeat:no-repeat}
+select.btn option{background:var(--surface);color:var(--text)}
+.hacts{display:flex;gap:8px;align-items:center}
 
-.legend{left:max(12px,env(safe-area-inset-left,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 12px);padding:4px 12px;font-size:12px;max-width:min(320px,calc(100vw - 24px));max-height:52vh;overflow:auto}
-.legend summary{cursor:pointer;padding:7px 0;font-weight:600;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
-.legend h4{margin:8px 0 4px;font-size:11px;color:var(--muted);font-weight:600}
-.legend .k{display:flex;align-items:center;gap:8px;padding:1.5px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.legend .k i{width:22px;height:3px;border-radius:2px;flex:none}
-.legend .k b{width:10px;height:10px;border-radius:50%;flex:none;box-shadow:0 0 8px currentColor}
-.legend .k em{font-style:normal;color:var(--faint);margin-left:auto;font-family:var(--font-mono);font-size:11px}
-.legend p{margin:8px 0 10px;color:var(--muted);font-size:11.5px;white-space:normal}
+/* view tabs, floating at the top of the graph */
+.tabs{position:fixed;z-index:5;top:calc(var(--hdr) + env(safe-area-inset-top,0px) + 14px);left:50%;transform:translateX(-50%);display:flex;gap:4px;padding:4px;border-radius:9px;border:1px solid var(--line);background:color-mix(in srgb,var(--elevated) 90%,transparent);backdrop-filter:blur(8px)}
+.tabs button{display:flex;align-items:center;gap:6px;border:0;background:transparent;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:500;color:var(--muted);cursor:pointer;white-space:nowrap}
+.tabs button:hover{background:var(--hover);color:var(--text)}
+.tabs button[aria-pressed="true"]{background:var(--accent);color:#fff}
+.tabs svg{width:14px;height:14px}
 
-.side{right:max(12px,env(safe-area-inset-right,0px));top:calc(env(safe-area-inset-top,0px) + 74px);bottom:calc(env(safe-area-inset-bottom,0px) + 12px);width:min(360px,calc(100vw - 24px));padding:16px;overflow:auto;display:flex;flex-direction:column;gap:12px}
-.side .kind{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:7px}
-.side h2{margin:0;font-size:18px;line-height:1.25;overflow-wrap:anywhere;text-wrap:balance}
-.side .code{font-family:var(--font-mono);font-size:11.5px;color:var(--muted);overflow-wrap:anywhere}
-.side p{margin:0;font-size:13px;color:#c9cedb;overflow-wrap:anywhere}
-.side h3{margin:0 0 6px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
-.box{border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--sky-2)}
+/* zoom and play controls, bottom-right of the graph */
+.ctrls{position:fixed;z-index:5;bottom:calc(var(--foot) + env(safe-area-inset-bottom,0px) + 14px);right:max(14px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:4px}
+.ctrls button{width:36px;height:36px;display:grid;place-items:center;border-radius:7px;border:1px solid var(--line);background:var(--elevated);color:var(--muted);cursor:pointer;transition:background .15s,color .15s}
+.ctrls button:hover{background:var(--hover);color:var(--text)}
+.ctrls button.on{border-color:color-mix(in srgb,var(--accent) 35%,transparent);background:color-mix(in srgb,var(--accent) 20%,transparent);color:var(--accent-text)}
+.ctrls svg{width:16px;height:16px}
+.ctrls hr{width:100%;height:1px;border:0;margin:3px 0;background:var(--line)}
+body:has(.side:not([hidden])) .ctrls{right:calc(min(380px,100vw) + 14px)}
+
+/* colour key */
+.legend{left:max(14px,env(safe-area-inset-left,0px));bottom:calc(var(--foot) + env(safe-area-inset-bottom,0px) + 14px);padding:2px 14px;font-size:12px;max-width:min(300px,calc(100vw - 28px));max-height:calc(100vh - var(--hdr) - var(--foot) - 90px);overflow:auto}
+.legend summary{cursor:pointer;padding:9px 0;font-weight:500;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+.legend h4{margin:8px 0 5px;font-size:11px;color:var(--muted);font-weight:500}
+.legend .k{display:flex;align-items:center;gap:9px;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-mono);font-size:11.5px;color:var(--text)}
+.legend .k i{width:20px;height:2px;border-radius:2px;flex:none}
+.legend .k b{width:9px;height:9px;border-radius:50%;flex:none}
+.legend .k em{font-style:normal;color:var(--faint);margin-left:auto;font-size:10.5px}
+.legend p{margin:8px 0 12px;color:var(--muted);font-size:11.5px;white-space:normal;line-height:1.5}
+
+/* side panel, docked right */
+.side{position:fixed;z-index:5;right:0;top:calc(var(--hdr) + env(safe-area-inset-top,0px));bottom:calc(var(--foot) + env(safe-area-inset-bottom,0px));width:min(380px,100vw);padding:18px 18px calc(18px + env(safe-area-inset-right,0px) * 0);overflow:auto;display:flex;flex-direction:column;gap:14px;background:var(--surface);border-left:1px solid var(--line);animation:slide .25s cubic-bezier(.4,0,.2,1)}
+@keyframes slide{from{opacity:0;transform:translateX(20px)}}
+.side .kind{font-size:10px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);display:flex;align-items:center;gap:8px}
+.side h2{margin:0;font-size:17px;font-weight:600;line-height:1.3;overflow-wrap:anywhere;text-wrap:balance;font-family:var(--font-mono)}
+.side .code{font-family:var(--font-mono);font-size:11.5px;color:var(--faint);overflow-wrap:anywhere}
+.side p{margin:0;font-size:13px;color:#c4c4d4;overflow-wrap:anywhere}
+.side h3{margin:0 0 7px;font-size:10px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+.box{border:1px solid var(--line);border-radius:9px;padding:11px;background:var(--deep)}
 .chain{display:flex;flex-wrap:wrap;align-items:center;gap:5px 6px;font-size:12.5px}
 .hop{display:inline-flex;align-items:center;gap:5px;color:var(--muted);font-size:11.5px}
-.dot{width:9px;height:9px;border-radius:50%;flex:none;display:inline-block}
-.chip{border:1px solid var(--line);background:var(--panel-2);border-radius:999px;padding:2px 9px;font-size:12px;cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.chip:hover{border-color:var(--accent)}
-.chip.here{border-color:var(--accent);color:var(--accent);cursor:default}
+.dot{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block}
+.chip{border:1px solid var(--line);background:var(--elevated);border-radius:6px;padding:2px 9px;font:12px var(--font-mono);cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip:hover{border-color:var(--line-2);background:var(--hover)}
+.chip.here{border-color:color-mix(in srgb,var(--accent) 40%,transparent);background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent-text);cursor:default}
 .tags{display:flex;flex-wrap:wrap;gap:5px}
-.tag{font-size:11.5px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
-.attrs{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:3px 12px;font-size:12px}
-.attrs dt{color:var(--muted);font-family:var(--font-mono)}
+.tag{font:11px var(--font-mono);padding:2px 8px;border-radius:6px;border:1px solid var(--line);color:var(--muted)}
+.attrs{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 12px;font-size:12px}
+.attrs dt{color:var(--faint);font-family:var(--font-mono)}
 .attrs dd{margin:0;font-family:var(--font-mono);overflow-wrap:anywhere}
 .list{display:flex;flex-direction:column;gap:4px;font-size:12.5px}
-.list .it{display:flex;align-items:center;gap:6px;min-width:0}
+.list .it{display:flex;align-items:center;gap:7px;min-width:0}
 .acts{display:flex;flex-wrap:wrap;gap:6px}
 
-.tip{position:fixed;z-index:7;pointer-events:none;background:#0b101c;border:1px solid #2a3550;border-radius:9px;box-shadow:0 8px 30px rgba(0,0,0,.6);padding:8px 10px;font-size:12px;max-width:300px}
-.tip b{display:block;font-size:13px}
+.tip{position:fixed;z-index:7;pointer-events:none;background:#12121c;border:1px solid var(--line-2);border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,.6);padding:8px 11px;font-size:12px;max-width:300px}
+.tip b{display:block;font:500 12.5px var(--font-mono)}
 .tip .s{color:var(--muted)}
 .tip .c{margin-top:5px;color:var(--muted);font-size:11.5px;line-height:1.55}
-.tip .c b{display:inline;font-size:11.5px;color:var(--text);font-weight:600}
+.tip .c b{display:inline;font-size:11.5px;color:var(--text);font-weight:500}
 
-.status{position:fixed;z-index:4;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 14px);font:11px var(--font-mono);color:var(--faint);pointer-events:none}
-.welcome{left:50%;top:50%;transform:translate(-50%,-50%);width:min(560px,calc(100vw - 32px));padding:24px;display:flex;flex-direction:column;gap:12px}
-.welcome h2{margin:0;font-size:21px}
+/* status bar */
+.status{position:fixed;z-index:6;left:0;right:0;bottom:0;min-height:calc(var(--foot) + env(safe-area-inset-bottom,0px));padding:0 max(16px,env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0px) max(16px,env(safe-area-inset-left,0px));display:flex;align-items:center;justify-content:space-between;gap:16px;background:var(--deep);border-top:1px dashed var(--line);font:11px var(--font-mono);color:var(--faint);white-space:nowrap;overflow:hidden}
+.status .ready{flex:none;display:flex;align-items:center;gap:7px}
+.status .ready::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--ok)}
+.status span{overflow:hidden;text-overflow:ellipsis}
+
+.welcome{left:50%;top:50%;transform:translate(-50%,-50%);width:min(560px,calc(100vw - 32px));padding:26px;display:flex;flex-direction:column;gap:12px;background:var(--surface);border-radius:14px}
+.welcome h2{margin:0;font-size:21px;font-weight:600}
 .welcome p{margin:0;color:var(--muted)}
 .err{color:var(--danger);font-size:13px}
-.drop{position:fixed;inset:0;z-index:20;display:grid;place-items:center;background:rgba(7,9,15,.8)}
-.drop div{border:2px dashed var(--accent);border-radius:16px;padding:36px 44px;background:var(--panel);font-weight:600}
+.drop{position:fixed;inset:0;z-index:20;display:grid;place-items:center;background:rgba(6,6,10,.85)}
+.drop div{border:2px dashed var(--accent);border-radius:16px;padding:36px 44px;background:var(--surface);font-weight:500;box-shadow:0 0 40px 10px rgba(124,58,237,.25)}
 
 @media (max-width:760px){
+  :root{--hdr:96px}
   .brand h1{display:none}
-  .side{top:auto;height:44vh}
-  .side:not([hidden]) ~ .legend, body:has(.side:not([hidden])) .legend{display:none}
-  .seg button{padding:5px 8px}
-  .status{display:none}
+  .pill{display:none}
+  .searchwrap{order:3;flex-basis:100%;max-width:none}
+  .hacts{margin-left:auto}
+  .side{top:auto;height:46vh;width:100%;border-left:0;border-top:1px solid var(--line)}
+  body:has(.side:not([hidden])) .legend{display:none}
+  body:has(.side:not([hidden])) .ctrls{right:max(14px,env(safe-area-inset-right,0px));bottom:calc(46vh + var(--foot) + 14px)}
+  .tabs button{padding:5px 9px}
+  kbd{display:none}
+  .status .zoom,.status .ready{display:none}
 }
+@media (max-width:420px){ #examples{display:none} }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
 <body>
 <canvas id="sky" tabindex="0" aria-label="Orbit map of the XML file. Use the search box to find and open elements; the side panel describes the selected one."></canvas>
 
-<header class="glass top" id="top">
+<header class="top" id="top">
   <div class="brand">
-    <svg class="mark" viewBox="0 0 26 26" aria-hidden="true"><defs><radialGradient id="sg"><stop offset="0" stop-color="#fef3c7"/><stop offset=".55" stop-color="#2dd4bf"/><stop offset="1" stop-color="#2dd4bf" stop-opacity="0"/></radialGradient></defs><circle cx="13" cy="13" r="6" fill="url(#sg)"/><ellipse cx="13" cy="13" rx="11.5" ry="5" fill="none" stroke="#60a5fa" stroke-width="1.2" transform="rotate(-25 13 13)"/><circle cx="23.2" cy="9" r="1.9" fill="#f472b6"/></svg>
-    <h1>XML <span>Orbitree</span></h1>
+    <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="2.6" fill="#fff" stroke="none"/><circle cx="12" cy="12" r="6.2" opacity=".55"/><circle cx="12" cy="12" r="9.6" opacity=".35"/><circle cx="18.2" cy="12" r="1.6" fill="#fff" stroke="none"/><circle cx="5.2" cy="8.2" r="1.3" fill="#fff" stroke="none"/></svg></div>
+    <h1>XML Orbitree</h1>
   </div>
   <span id="file" class="pill" hidden></span>
-  <div class="seg" id="modes" hidden role="group" aria-label="View">
-    <button type="button" id="modeLinks" aria-pressed="true">By meaning</button>
-    <button type="button" id="modeTree" aria-pressed="false">As XML tree</button>
-  </div>
   <div class="searchwrap">
-    <input id="q" type="search" placeholder="Find an element and show where it sits" autocomplete="off" aria-label="Find" aria-controls="results">
+    <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search elements…" autocomplete="off" aria-label="Find" aria-controls="results"><kbd id="qk">Ctrl K</kbd></label>
     <div class="glass results" id="results" hidden role="listbox"></div>
   </div>
-  <div class="spacer"></div>
-  <button class="btn" id="foldAll" type="button">Fold all</button>
-  <button class="btn" id="play" type="button" aria-pressed="true">Pause orbits</button>
-  <button class="btn" id="fit" type="button">Fit</button>
-  <select class="btn" id="examples" aria-label="Open an example">
-    <option value="">Examples…</option>
-    <option value="samples/S-201_FC_OpenS100_draft.xml">S-201 Feature Catalogue (2016 draft)</option>
-    <option value="samples/S-201_dataset_example.xml">S-201 dataset with links (made-up)</option>
-  </select>
-  <button class="btn primary" id="openBtn" type="button">Open XML…</button>
+  <div class="hacts">
+    <select class="btn" id="examples" aria-label="Open an example">
+      <option value="">Examples</option>
+      <option value="samples/S-201_FC_OpenS100_draft.xml">S-201 Feature Catalogue (2016 draft)</option>
+      <option value="samples/S-201_dataset_example.xml">S-201 dataset with links (made-up)</option>
+    </select>
+    <button class="btn primary" id="openBtn" type="button">Open XML</button>
+  </div>
   <input type="file" id="fileIn" accept=".xml,.gml,.xsd,.svg,.kml,.rss,.atom,.plist,text/xml,application/xml" hidden>
 </header>
+
+<div class="tabs" id="modes" hidden role="group" aria-label="View">
+  <button type="button" id="modeLinks" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M10.8 7.2 6.3 15.8M13.2 7.2l4.5 8.6M7.5 18h9"/></svg>By meaning</button>
+  <button type="button" id="modeTree" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="6" cy="5" r="2.5"/><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 7.5v9M6 12h9.5"/></svg>As XML tree</button>
+</div>
+
+<div class="ctrls" id="ctrls">
+  <button type="button" id="zoomIn" title="Zoom in (+)" aria-label="Zoom in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M11 8v6M8 11h6"/></svg></button>
+  <button type="button" id="zoomOut" title="Zoom out (-)" aria-label="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M8 11h6"/></svg></button>
+  <button type="button" id="fit" title="Fit to screen (f)" aria-label="Fit to screen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
+  <hr>
+  <button type="button" id="foldAll" title="Fold all orbits" aria-label="Fold all orbits"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
+  <hr>
+  <button type="button" id="play" class="on" title="Pause orbits (space)" aria-label="Pause orbits" aria-pressed="true"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg></button>
+</div>
 
 <details class="glass legend" id="legend" open>
   <summary>Colour key</summary>
@@ -148,14 +200,14 @@ code,.mono{font-family:var(--font-mono);font-size:.9em}
 
 <aside class="glass side" id="side" hidden aria-live="polite"></aside>
 <div class="tip" id="tip" hidden></div>
-<div class="status" id="status"></div>
+<footer class="status" id="foot"><span class="ready" id="ready">Ready</span><span id="status"></span><span class="zoom" id="zoomPct"></span></footer>
 
 <section class="glass welcome" id="welcome" hidden>
   <h2>See an XML file as a solar system</h2>
-  <p>Open or drop any XML file, or paste XML anywhere on this page. The root element is the sun. Each element's children orbit it, one coloured orbit per tag. Click a body to open its own orbits. What orbits what never changes; you can drag bodies about and they drift back.</p>
+  <p>Open or drop any XML file, or paste XML anywhere on this page. The root element is the sun. Each element's children orbit it, each on an orbit of its own. Click a body to open its own orbits. What orbits what never changes; you can drag bodies about and they drift back.</p>
   <p>S-100 Feature Catalogues get a second view that orbits types by meaning: inheritance, feature links, attributes and allowed values.</p>
   <p class="err" id="err" hidden></p>
-  <div class="acts"><button class="btn primary" id="openBtn2" type="button">Open XML…</button><button class="btn" id="sampleBtn" type="button">Load the S-201 sample</button></div>
+  <div class="acts"><button class="btn primary" id="openBtn2" type="button">Open XML</button><button class="btn" id="sampleBtn" type="button">Load the S-201 sample</button></div>
 </section>
 <div class="drop" id="drop" hidden><div>Drop the XML file</div></div>
 

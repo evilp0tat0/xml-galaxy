@@ -8,7 +8,7 @@
 const XO = window.XO;
 const LEVEL = 0.5;                       /* scale of a body's moons relative to the body's own level */
 const unit = depth => Math.pow(LEVEL, Math.max(0, depth - 1));
-const MAX_UNFOLDED = 60;                 /* more children than this and the biggest groups fold */
+const MAX_UNFOLDED = 48;                 /* more children than this and the biggest groups fold */
 
 class Orbits {
   constructor(src){
@@ -61,7 +61,6 @@ class Orbits {
         if (p.fold || p.fresh.length < 2 || this.spread.has(p.gid)) continue;
         p.fold = true; shown -= p.fresh.length - 1;
       }
-      const pool = [];
       for (const { g, fresh, gid, fold } of plan) {
         const members = [];
         if (fold) {
@@ -77,22 +76,13 @@ class Orbits {
           links.push({ id:"s|" + e.id, a:n, b, color:g.color, short:e.short, label:e.label, inh:e.inherited, kind:"spoke" });
         }
         if (!members.length) continue;
-        if (src.mergeRings) pool.push(...members);
-        else n.rings.push({ id:gid, key:g.key, title:g.title, color:g.color, count:members.reduce((s, m) => s + (m.count || 1), 0), total:g.entries.length, members, center:n, folded:members[0].type === "group" });
+        /* every body gets an orbit of its own; bodies from one group sit on neighbouring orbits */
+        const grp = { id:gid, key:g.key, title:g.title, color:g.color, count:members.reduce((s, m) => s + (m.count || 1), 0), total:g.entries.length, folded:fold };
+        members.forEach((m, j) => n.rings.push({ id:gid + "#" + j, grp, color:g.color, members:[m], center:n, first:j === 0 }));
       }
       for (const { e, g } of later) {
         const t = next.get(e.id) || claimed.get(e.id);
         if (t && t !== n) links.push({ id:`x|${n.id}|${e.id}|${g.key}`, a:n, b:t, color:g.color, short:e.short, label:e.label, inh:e.inherited, kind:"extra" });
-      }
-      if (pool.length) {
-        /* fill rings from the inside out; a ring holds more bodies the further out it is */
-        const cap = i => (n.depth === 0 ? 14 : 9) + i * (n.depth === 0 ? 10 : 6);
-        let i = 0, at = 0;
-        while (at < pool.length) {
-          const members = pool.slice(at, at + cap(i));
-          n.rings.push({ id:n.id + "#" + i, key:"ring" + i, title:i ? "children (cont.)" : "children", color:"ring", count:members.reduce((s, m) => s + (m.count || 1), 0), members, center:n, folded:false });
-          at += members.length; i++;
-        }
       }
     }
     for (const r of order) for (const ref of (src.refs ? src.refs(r.id) : [])) {
@@ -108,26 +98,22 @@ class Orbits {
     return this;
   }
 
-  /* Ring sizes for one body, once its moons' own systems are sized. Room along a ring is shared out by size,
-     so a moon with a big system of its own never sits inside a neighbour's. */
+  /* Orbit sizes for one body, once its moons' own systems are sized. One body per orbit, and each orbit
+     clears the one inside it by both bodies' full systems, so no two bodies (or their moons) can ever collide. */
   layoutNode(n){
     const d = n.depth, u = unit(d + 1), ext = m => m.size + (m.sysR || 0);
+    const pad = (d === 0 ? 9 : 5) * u, bandGap = (d === 0 ? 26 : 9) * u;
     let r = 0, prevExt = 0;
     n.rings.forEach((ring, i) => {
-      const pad = (d === 0 ? 18 : 12) * u;
-      const w = ring.members.map(m => 2 * ext(m) + pad), W = w.reduce((s, x) => s + x, 0);
-      const maxExt = Math.max(...ring.members.map(ext));
-      const need = W / (2 * Math.PI);
-      const gap = (d === 0 ? 70 : 22) * u;
-      ring.r = Math.max(r === 0 ? n.size + (d === 0 ? 70 : 24) * u + maxExt : r + prevExt + gap + maxExt, need);
-      ring.speed = d === 0 ? 0.07 * Math.pow(110 / ring.r, 1.5) : 0.2 * Math.pow(40 * u / ring.r, 0.8);
-      ring.dir = d === 0 || i % 2 === 0 ? 1 : -1;
-      const phase = i * 2.39996 + d * 1.3;
-      let acc = 0;
-      ring.members.forEach((m, j) => { m.ring = ring; m.a0 = phase + 2 * Math.PI * (acc + w[j] / 2) / W; acc += w[j]; });
-      r = ring.r; prevExt = maxExt;
+      const m = ring.members[0], e = ext(m);
+      ring.r = i === 0 ? n.size + (d === 0 ? 46 : 14) * u + e : r + prevExt + pad + e + (ring.first ? bandGap : 0);
+      /* inner orbits turn faster, so no two bodies keep step */
+      ring.speed = d === 0 ? 0.08 * (110 / ring.r) : 0.22 * Math.pow(40 * u / ring.r, 0.8);
+      ring.dir = 1;
+      m.ring = ring; m.a0 = i * 2.39996 + d * 1.3;
+      r = ring.r; prevExt = e;
     });
-    n.sysR = n.rings.length ? r + prevExt + (d ? 50 * u : 0) : 0;
+    n.sysR = n.rings.length ? r + prevExt + (d ? 24 * u : 0) : 0;
   }
 
   /* One physics step. Parents come first in `order`, so moons aim at where their planet actually is. */

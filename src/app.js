@@ -12,7 +12,8 @@ const A = { doc:null, FC:null, fileName:"", mode:"tree", src:null, O:null, playi
   cam:{ x:0, y:0, k:1 }, camTo:null, follow:null, followK:null, hover:null, sel:null, ptr:null, pinch:null, userLoaded:false };
 
 /* ---------------- colours ---------------- */
-const colour = key => key === "miss" ? "#f87171" : key === "ring" ? "#5b6b8c" : (A.src?.palette.get(key)?.color || "#94a3b8");
+const colour = key => key === "miss" ? "#ef4444" : (A.src?.palette.get(key)?.color || "#6b7280");
+const CYAN = "#06b6d4";
 const glowCache = new Map();
 function glowSprite(col){
   if (glowCache.has(col)) return glowCache.get(col);
@@ -22,16 +23,6 @@ function glowSprite(col){
   g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
   glowCache.set(col, c); return c;
 }
-let stars = null;
-function makeStars(){
-  stars = document.createElement("canvas"); stars.width = stars.height = 512;
-  const g = stars.getContext("2d");
-  for (let i = 0; i < 160; i++) {
-    const x = Math.random() * 512, y = Math.random() * 512, r = Math.random() * 1.1 + 0.2;
-    g.fillStyle = `rgba(200,215,255,${0.08 + Math.random() * 0.35})`; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
-  }
-}
-
 /* ---------------- canvas size ---------------- */
 let W = 0, H = 0, DPR = 1;
 function resize(){
@@ -42,10 +33,10 @@ function resize(){
 }
 /* the free part of the screen: below the top bar, left of the side panel */
 function freeArea(){
-  const top = $("top").getBoundingClientRect().bottom + 8;
+  const tabs = $("modes"), top = (tabs.hidden ? $("top") : tabs).getBoundingClientRect().bottom + 8;
   const side = $("side"), sr = side.hidden ? null : side.getBoundingClientRect();
-  const right = sr && W > 760 ? sr.left - 8 : W - 8;
-  const bottom = sr && W <= 760 ? sr.top - 8 : H - 8;
+  const right = sr && W > 760 ? sr.left - 56 : W - 56;
+  const bottom = sr && W <= 760 ? sr.top - 8 : $("foot").getBoundingClientRect().top - 8;
   const lg = $("legend"), left = lg.open && W > 1100 ? Math.min(lg.getBoundingClientRect().right + 8, W * 0.3) : 8;
   return { x0:left, y0:top, x1:right, y1:Math.max(top + 80, bottom) };
 }
@@ -61,7 +52,7 @@ function frame(now){
   const camMoving = cameraStep();
   draw();
   if (!A.ptr && A.mx != null && (camMoving || moving || spin)) { const h = hit(A.mx, A.my, A.mslop); if ((h?.id ?? null) !== A.hover) setHover(h); else if (h && !$("tip").hidden) placeTip(h); }
-  if (spin || moving || camMoving || A.ptr?.dragging) raf = requestAnimationFrame(frame); else last = 0;
+  if (spin || moving || camMoving || A.ptr?.dragging || A.pulse) raf = requestAnimationFrame(frame); else last = 0;
 }
 function cameraStep(){
   const c = A.cam, f = REDUCED ? 1 : 0.13;
@@ -103,7 +94,8 @@ function followBody(b, zoomToSystem){
   A.follow = b.id; A.followOff = null;
   if (zoomToSystem) {
     const fa = freeArea();
-    const R = ((b.sysR || 0) + b.size) * 1.15 + 6;
+    /* a body with no orbits of its own: show it with its neighbourhood, not filling the screen */
+    const R = b.sysR ? (b.sysR + b.size) * 1.15 + 6 : b.size * 12;
     A.followK = Math.max(0.05, Math.min(1e5, Math.min(fa.x1 - fa.x0, fa.y1 - fa.y0) / (2 * R)));
   }
   kick();
@@ -126,81 +118,97 @@ function litSet(){
 }
 
 /* ---------------- drawing ---------------- */
-const MONO = '12px "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace';
-const MONO_S = '11px "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace';
-const SUN = '700 15px Inter, system-ui, sans-serif';
+const MONO = '500 11px "JetBrains Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace';
+const MONO_S = '500 10.5px "JetBrains Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace';
+const SUN = '600 13px "JetBrains Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace';
 const widths = new Map();
 function textW(t, font){ const k = font + "|" + t; let w = widths.get(k); if (w == null) { ctx.font = font; w = ctx.measureText(t).width; widths.set(k, w); if (widths.size > 6000) widths.clear(); } return w; }
 
+/* GitNexus look: flat discs on a near-black void, thin curved edges, one hairline orbit per body.
+   With something lit, the rest shrinks and fades, and the lit body and its neighbours grow. */
+function bodyScale(b, lit){
+  if (!lit) return 1;
+  if (b.id === lit.d.id) return 1.5;
+  return lit.nodes.has(b.id) ? 1.15 : 0.6;
+}
 function draw(){
   const c = A.cam;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  const bg = ctx.createRadialGradient(W * 0.5, H * 0.45, 0, W * 0.5, H * 0.45, Math.max(W, H) * 0.75);
-  bg.addColorStop(0, "#0d1426"); bg.addColorStop(1, "#05070c");
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, "#06060a"); bg.addColorStop(1, "#0a0a10");
   ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
-  if (!stars) makeStars();
-  const ox = ((c.x * 0.06) % 512 + 512) % 512, oy = ((c.y * 0.06) % 512 + 512) % 512;
-  for (let x = -512 + ox; x < W; x += 512) for (let y = -512 + oy; y < H; y += 512) ctx.drawImage(stars, x, y);
+  const vg = ctx.createRadialGradient(W * 0.5, H * 0.5, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.7);
+  vg.addColorStop(0, "rgba(124,58,237,0.05)"); vg.addColorStop(1, "rgba(124,58,237,0)");
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
   const O = A.O; if (!O) return;
-  const lit = litSet(), dim = lit ? 0.13 : 1;
+  const lit = litSet();
 
   /* everything is drawn in screen pixels, worked out here in full precision: the canvas's own transform
      loses precision at the very large zooms needed for deep moons */
   const k = c.k, X = b => c.x + k * b.x, Y = b => c.y + k * b.y;
   const onScreen = (x, y, r) => x + r > -40 && y + r > -40 && x - r < W + 40 && y - r < H + 40;
-  /* orbits */
+  /* orbits: hairlines, one per body */
   for (const b of O.order) for (const ring of b.rings) {
     const x = X(b), y = Y(b), rr = ring.r * k;
     if (rr < 1.5 || !onScreen(x, y, rr) || rr > 4 * Math.hypot(W, H) + Math.hypot(x - W / 2, y - H / 2)) continue;
     const on = lit?.rings.has(ring.id);
-    ctx.globalAlpha = lit ? (on ? 0.95 : 0.08) : (b.depth === 0 ? 0.5 : 0.38);
-    ctx.strokeStyle = colour(ring.color); ctx.lineWidth = on ? 1.8 : 1.1;
-    ctx.setLineDash([2, 6]);
+    ctx.globalAlpha = lit ? (on ? 0.55 : 0.04) : (b.depth === 0 ? 0.16 : 0.12);
+    ctx.strokeStyle = colour(ring.color); ctx.lineWidth = on ? 1.3 : 0.8;
+    ctx.setLineDash(ring.grp.folded ? [3, 4] : []);
     ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.stroke();
   }
   ctx.setLineDash([]);
-  /* links */
+  /* edges: curved, like Sigma's curved edge program */
   for (const l of O.links) {
     const on = lit?.links.has(l.id), ax = X(l.a), ay = Y(l.a), bx = X(l.b), by = Y(l.b);
     if (Math.max(ax, bx) < -40 || Math.max(ay, by) < -40 || Math.min(ax, bx) > W + 40 || Math.min(ay, by) > H + 40) continue;
     if (Math.hypot(bx - ax, by - ay) < 1) continue;
-    ctx.globalAlpha = lit ? (on ? 1 : 0.05) : (l.kind === "spoke" ? 0.42 : 0.3);
-    ctx.strokeStyle = colour(l.color); ctx.lineWidth = on ? 2.2 : l.kind === "spoke" ? 1.1 : 1;
-    ctx.beginPath();
-    if (l.kind === "spoke") { ctx.setLineDash(l.inh ? [3, 4] : []); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); }
-    else { ctx.setLineDash([5, 5]); const dx = bx - ax, dy = by - ay, bend = l.kind === "extra" ? 0.16 : 0.24; ctx.moveTo(ax, ay); ctx.quadraticCurveTo((ax + bx) / 2 - dy * bend, (ay + by) / 2 + dx * bend, bx, by); }
+    ctx.globalAlpha = lit ? (on ? 0.95 : 0.04) : (l.kind === "spoke" ? 0.32 : 0.45);
+    ctx.strokeStyle = colour(l.color); ctx.lineWidth = on ? 2.4 : l.kind === "spoke" ? 0.9 : 1.1;
+    ctx.setLineDash(l.kind === "spoke" ? (l.inh ? [3, 4] : []) : [5, 5]);
+    const dx = bx - ax, dy = by - ay, bend = l.kind === "spoke" ? 0.1 : l.kind === "extra" ? 0.18 : 0.26;
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo((ax + bx) / 2 - dy * bend, (ay + by) / 2 + dx * bend, bx, by);
     ctx.stroke();
   }
   ctx.setLineDash([]);
   /* bodies that are folding away */
-  for (const g of O.ghosts) { const x = X(g), y = Y(g), r = g.size * k * g.life; if (r < 0.3 || !onScreen(x, y, r)) continue; ctx.globalAlpha = Math.max(0, g.life) * 0.7 * dim; ctx.fillStyle = colour(g.color); ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); }
+  for (const g of O.ghosts) { const x = X(g), y = Y(g), r = g.size * k * g.life; if (r < 0.3 || !onScreen(x, y, r)) continue; ctx.globalAlpha = Math.max(0, g.life) * 0.6 * (lit ? 0.2 : 1); ctx.fillStyle = colour(g.color); ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); }
   /* bodies */
   for (const b of O.order) {
-    const x = X(b), y = Y(b), r = Math.max(b.size * k, 1.2);
-    if (!onScreen(x, y, r * 4.2)) continue;
+    const x = X(b), y = Y(b), r = Math.max(b.size * k * bodyScale(b, lit), 1.2);
+    if (!onScreen(x, y, r * 3)) continue;
     const on = !lit || lit.nodes.has(b.id), col = colour(b.color);
-    ctx.globalAlpha = on ? 1 : dim;
-    if (b.depth === 0 || (on && lit) || b.id === A.sel || (b.depth === 1 && r > 4)) {
-      const gr = r * (b.depth === 0 ? 4.2 : 3.2);
-      ctx.globalAlpha = on ? (b.depth === 0 ? 0.9 : 0.55) : 0.1;
+    if (b.depth === 0 || b.id === A.sel || (lit && b.id === lit.d.id)) {
+      const gr = r * (b.depth === 0 ? 3.4 : 2.6);
+      ctx.globalAlpha = on ? (b.depth === 0 ? 0.55 : 0.4) : 0.08;
       ctx.drawImage(glowSprite(col), x - gr, y - gr, gr * 2, gr * 2);
-      ctx.globalAlpha = on ? 1 : dim;
     }
+    ctx.globalAlpha = on ? 1 : 0.22;
     if (b.type === "group") {
-      ctx.fillStyle = "#0b1120"; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
-      ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.setLineDash([3, 2.5]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = "#101018"; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+      ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.setLineDash([3, 2.5]); ctx.stroke(); ctx.setLineDash([]);
     } else {
       ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
-      if (b.abstract) { ctx.fillStyle = "#07090f"; ctx.beginPath(); ctx.arc(x, y, r * 0.55, 0, 7); ctx.fill(); }
-      ctx.strokeStyle = "rgba(5,7,12,.85)"; ctx.lineWidth = 1.5; ctx.stroke();
+      if (b.abstract) { ctx.fillStyle = "#06060a"; ctx.beginPath(); ctx.arc(x, y, r * 0.55, 0, 7); ctx.fill(); }
     }
-    if (b.isOpen && b.depth > 0) { ctx.strokeStyle = col; ctx.lineWidth = 1.4; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.arc(x, y, r + 6, 0, 7); ctx.stroke(); ctx.setLineDash([]); }
-    if (b.id === A.sel) { ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 9, 0, 7); ctx.stroke(); }
+    if (b.isOpen && b.depth > 0 && r > 2) { ctx.globalAlpha = on ? 0.6 : 0.15; ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(x, y, r + 3.5, 0, 7); ctx.stroke(); }
+    if (b.id === A.hover || b.id === A.sel) { ctx.globalAlpha = b.id === A.sel ? 0.9 : 0.5; ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 4, 0, 7); ctx.stroke(); }
+  }
+  /* search hit: a cyan pulse */
+  const P = A.pulse, pb = P && O.bodies.get(P.id);
+  if (pb) {
+    const t = (performance.now() - P.t0) / 1000;
+    if (t > 2.4) A.pulse = null;
+    else {
+      const x = X(pb), y = Y(pb), r = Math.max(pb.size * k * bodyScale(pb, lit), 3);
+      for (let i = 0; i < 2; i++) { const p = ((t * 1.25 + i * 0.5) % 1); ctx.globalAlpha = (1 - p) * 0.9; ctx.strokeStyle = CYAN; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 4 + p * 26, 0, 7); ctx.stroke(); }
+    }
   }
   ctx.globalAlpha = 1;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   drawLabels(lit);
-  $("status").textContent = A.src ? `${O.order.filter(b => b.type !== "group").length} of ${A.src.total.toLocaleString()} ${A.src.mode === "tree" ? "elements" : "types"} shown · zoom ${Math.round(c.k * 100)}%` : "";
+  $("status").textContent = A.src ? `${O.order.filter(b => b.type !== "group").length} of ${A.src.total.toLocaleString()} ${A.src.mode === "tree" ? "elements" : "types"} shown · ${O.order.reduce((s, b) => s + b.rings.length, 0)} orbits` : "";
+  $("zoomPct").textContent = A.src ? `zoom ${Math.round(c.k * 100)}%` : "";
 }
 const S = (b) => [A.cam.x + A.cam.k * b.x, A.cam.y + A.cam.k * b.y];
 
@@ -208,40 +216,42 @@ const S = (b) => [A.cam.x + A.cam.k * b.x, A.cam.y + A.cam.k * b.y];
 function drawLabels(lit){
   const O = A.O, k = A.cam.k, placed = [];
   const free = r => { if (r.x < -50 || r.y < -20 || r.x > W + 50 || r.y > H + 20) return false; for (const p of placed) if (r.x < p.x + p.w && r.x + r.w > p.x && r.y < p.y + p.h && r.y + r.h > p.y) return false; return true; };
-  const pill = (x, y, w, h, stroke) => { ctx.fillStyle = "rgba(9,13,24,.92)"; ctx.strokeStyle = stroke; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(x, y, w, h, 6); ctx.fill(); ctx.stroke(); };
+  const pill = (x, y, w, h, stroke, lw = 1) => { ctx.fillStyle = "#12121c"; ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.beginPath(); ctx.roundRect(x, y, w, h, 4); ctx.fill(); ctx.stroke(); };
   /* bodies' circles block labels too, so names never sit on top of a planet */
-  for (const b of O.order) { const [x, y] = S(b), r = b.size * k; if (r > 3) placed.push({ x:x - r, y:y - r, w:2 * r, h:2 * r }); }
+  for (const b of O.order) { const [x, y] = S(b), r = b.size * k * bodyScale(b, lit); if (r > 3) placed.push({ x:x - r, y:y - r, w:2 * r, h:2 * r }); }
   const cands = [];
   for (const b of O.order) {
     const on = lit?.nodes.has(b.id);
     if (lit && !on && b.depth > 0) continue;
     const r = b.size * k;
     if (!on && b.depth > 1 && r < 3.2) continue;
-    const pri = b.depth === 0 ? -1e9 : (on ? 0 : 1e6) + (b.id === A.sel || b.id === A.hover ? 0 : 1e5) + b.depth * 1e3 - b.size;
+    const pri = lit && b.id === lit.d.id && b.depth ? -2e9 : b.depth === 0 ? -1e9 : (on ? 0 : 1e6) + (b.id === A.sel || b.id === A.hover ? 0 : 1e5) + b.depth * 1e3 - b.size;
     cands.push([pri, b]);
   }
   cands.sort((p, q) => p[0] - q[0]);
   /* the sun's name sits under it */
   ctx.textBaseline = "middle";
   for (const [, b] of cands) {
-    const [x, y] = S(b), r = b.size * k, hot = lit?.nodes.has(b.id);
+    const [x, y] = S(b), r = b.size * k * bodyScale(b, lit), hot = lit?.nodes.has(b.id), main = lit && b.id === lit.d.id;
     if (b.depth === 0) {
-      const t = clip(b.label, 40), w = textW(t, SUN);
-      const rect = { x:x - w / 2 - 4, y:y + r + 8, w:w + 8, h:20 };
+      const t = clip(b.label, 40), w = textW(t, SUN) + 18, h = 24;
+      const rect = { x:x - w / 2, y:y + r + 8, w, h };
       if (!free(rect) && lit) continue;
-      placed.push(rect); ctx.font = SUN; ctx.fillStyle = "#ffffff"; ctx.textAlign = "center"; ctx.fillText(t, x, y + r + 18); ctx.textAlign = "left";
+      placed.push(rect); ctx.font = SUN; pill(rect.x, rect.y, w, h, colour(b.color), 2);
+      ctx.fillStyle = "#f5f5f7"; ctx.textAlign = "center"; ctx.fillText(t, x, rect.y + h / 2 + 0.5); ctx.textAlign = "left";
       continue;
     }
     const t = b.type === "group" ? `${b.label} · ${b.count}` : clip(b.label, hot ? 52 : 30);
-    const font = hot || b.depth <= 1 ? MONO : MONO_S, w = textW(t, font) + (hot ? 12 : 4), h = hot ? 20 : 15;
-    const tries = [[x + r + 6, y - h / 2], [x - r - 6 - w, y - h / 2], [x - w / 2, y + r + 4], [x - w / 2, y - r - 4 - h]];
+    const font = hot || b.depth <= 1 ? MONO : MONO_S, w = textW(t, font) + (hot ? 16 : 4), h = hot ? 21 : 15;
+    /* the lit body's name sits in a pill above it, as GitNexus draws a hovered node; others go beside */
+    const above = [x - w / 2, y - r - 8 - h], tries = main ? [above, [x - w / 2, y + r + 8]] : [[x + r + 6, y - h / 2], [x - r - 6 - w, y - h / 2], [x - w / 2, y + r + 4], [x - w / 2, y - r - 4 - h]];
     for (const [lx, ly] of tries) {
       const rect = { x:lx, y:ly, w, h };
-      if (!free(rect)) continue;
+      if (!free(rect) && !main) continue;
       placed.push(rect);
       ctx.font = font;
-      if (hot) { pill(lx, ly, w, h, colour(b.color) + "88"); ctx.fillStyle = "#f1f5f9"; ctx.fillText(t, lx + 6, ly + h / 2 + 0.5); }
-      else { ctx.fillStyle = b.depth <= 1 ? "rgba(228,228,237,.92)" : "rgba(190,198,214,.8)"; ctx.fillText(t, lx + 2, ly + h / 2 + 0.5); }
+      if (hot) { pill(lx, ly, w, h, colour(b.color) + (main ? "" : "99"), main ? 2 : 1); ctx.fillStyle = "#f5f5f7"; ctx.fillText(t, lx + 8, ly + h / 2 + 0.5); }
+      else { ctx.fillStyle = b.depth <= 1 ? "rgba(228,228,237,.9)" : "rgba(136,136,160,.9)"; ctx.fillText(t, lx + 2, ly + h / 2 + 0.5); }
       break;
     }
   }
@@ -255,19 +265,20 @@ function drawLabels(lit){
     for (const [dx, dy] of [[0, 0], [0, -16], [0, 16], [0, -32], [0, 32], [w * 0.6, 0], [-w * 0.6, 0]]) {
       const rect = { x:mx - w / 2 + dx, y:my - h / 2 + dy, w, h };
       if (!free(rect)) continue;
-      placed.push(rect); pill(rect.x, rect.y, w, h, colour(l.color) + "66");
+      placed.push(rect); pill(rect.x, rect.y, w, h, colour(l.color) + "77");
       ctx.font = MONO_S; ctx.fillStyle = colour(l.color); ctx.fillText(l.short, rect.x + 5, rect.y + h / 2 + 0.5);
       break;
     }
   }
+  /* each group of neighbouring orbits is named once, on its innermost orbit */
   for (const b of O.order) for (const ring of b.rings) {
-    if (!(b.depth === 0 || lit?.rings.has(ring.id) || b.id === A.sel)) continue;
+    if (!ring.first || ring.grp.count < 2 && !ring.grp.folded || !(b.depth === 0 || lit?.rings.has(ring.id) || b.id === A.sel || (lit && b.id === lit.d.id))) continue;
     const [x, y] = S(b), rr = ring.r * k;
     if (rr < 40) continue;
-    const t = `${ring.title} · ${ring.count}${ring.folded ? " (folded)" : ""}`, w = textW(t, MONO_S) + 6;
+    const g = ring.grp, t = `${g.title} · ${g.count}${g.folded ? " (folded)" : ""}`, w = textW(t, MONO_S) + 6;
     const rect = { x:x - w / 2, y:y - rr - 8, w, h:15 };
     if (!free(rect)) continue;
-    placed.push(rect); ctx.globalAlpha = lit && !lit.rings.has(ring.id) ? 0.25 : 0.95;
+    placed.push(rect); ctx.globalAlpha = lit && !lit.rings.has(ring.id) ? 0.25 : 0.85;
     ctx.font = MONO_S; ctx.fillStyle = colour(ring.color); ctx.fillText(t, rect.x + 3, rect.y + 7.5); ctx.globalAlpha = 1;
   }
 }
@@ -367,7 +378,7 @@ function chainText(b){
   return A.O.chainOf(b).map((x, i) => (i ? `<span class="s">→ ${esc(hopText(x, 40))} →</span> ` : "") + `<b>${esc(clip(x.label, 34))}</b>`).join(" ");
 }
 /* how a body hangs off its parent: the kind of link (catalogue) or its tag (plain XML) */
-function hopText(x, n){ return A.src.mode === "links" ? clip(x.via?.label || x.ring?.title || "", n) : (x.type === "group" ? x.label : x.kind || ""); }
+function hopText(x, n){ return A.src.mode === "links" ? clip(x.via?.label || x.ring?.grp.title || "", n) : (x.type === "group" ? x.label : x.kind || ""); }
 const hopColour = x => A.src.mode === "links" ? colour(x.ring?.color) : colour(x.color);
 function tipHtml(b){
   const n = A.src.node(b.id), kind = b.type === "group" ? `${b.count} × ${esc(b.label)} (folded)` : esc(n?.kind || "");
@@ -379,7 +390,7 @@ function tipHtml(b){
 function placeTip(b){
   const tip = $("tip"), [sx, sy] = S(b), rr = b.size * A.cam.k + 6, w = tip.offsetWidth, h = tip.offsetHeight;
   const avoid = [{ x0:sx - rr, y0:sy - rr, x1:sx + rr, y1:sy + rr, wt:1000 }];
-  for (const el of [$("top"), $("side"), $("legend")]) if (el && !el.hidden) { const r = el.getBoundingClientRect(); avoid.push({ x0:r.left, y0:r.top, x1:r.right, y1:r.bottom, wt:30 }); }
+  for (const el of [$("top"), $("side"), $("legend"), $("modes"), $("ctrls"), $("foot")]) if (el && !el.hidden) { const r = el.getBoundingClientRect(); avoid.push({ x0:r.left, y0:r.top, x1:r.right, y1:r.bottom, wt:30 }); }
   const lit = litSet();
   if (lit) for (const id of lit.nodes) { const n = A.O.bodies.get(id); if (n && n !== b) { const [x, y] = S(n); avoid.push({ x0:x - 14, y0:y - 14, x1:x + 14, y1:y + 14, wt:4 }); } }
   const base = b.parent ? Math.atan2(b.y - b.parent.y, b.x - b.parent.x) : Math.PI / 4;
@@ -463,8 +474,8 @@ function reveal(id){
   A.O.reveal(path); A.O.build();
   const b = A.O.bodies.get(id);
   if (!b) { note("It sits inside a body that is already on the map; look for the dashed line."); return; }
-  select(b); followBody(b, true);
-  if (b.parent) A.followK = Math.min(1e5, Math.max(A.followK || A.cam.k, 14 / Math.max(1e-4, b.size)));
+  select(b); followBody(b, true); A.pulse = { id:b.id, t0:performance.now() };
+  if (b.parent) A.followK = Math.min(1e5, Math.max(A.followK || A.cam.k, 8 / Math.max(1e-4, b.size)));
 }
 let resIdx = -1;
 $("q").addEventListener("input", () => showResults());
@@ -515,7 +526,8 @@ function setSource(src){
   for (let i = 0; i < 90; i++) A.O.step(1 / 30, false);
   renderLegend();
   $("modeLinks").setAttribute("aria-pressed", src.mode === "links"); $("modeTree").setAttribute("aria-pressed", src.mode === "tree");
-  $("q").placeholder = src.mode === "links" ? "Find a type and show how it links to the sun" : "Find an element and show where it sits";
+  $("q").placeholder = src.mode === "links" ? "Search types…" : "Search elements…";
+  $("ready").textContent = src.mode === "links" ? "Catalogue · by meaning" : "XML tree";
   requestAnimationFrame(() => fit(false));
 }
 function loadText(text, name){
@@ -574,7 +586,18 @@ function renderLegend(){
 }
 
 /* ---------------- controls ---------------- */
-function setPlay(on){ A.playing = on; $("play").textContent = on ? "Pause orbits" : "Play orbits"; $("play").setAttribute("aria-pressed", on); kick(); }
+const ICON_PAUSE = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
+const ICON_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>';
+function setPlay(on){
+  A.playing = on; const b = $("play"), t = on ? "Pause orbits" : "Play orbits";
+  b.innerHTML = on ? ICON_PAUSE : ICON_PLAY; b.title = t + " (space)"; b.setAttribute("aria-label", t); b.setAttribute("aria-pressed", on); b.classList.toggle("on", on); kick();
+}
+$("zoomIn").addEventListener("click", () => zoomAt(W / 2, H / 2, 1.4));
+$("zoomOut").addEventListener("click", () => zoomAt(W / 2, H / 2, 1 / 1.4));
+$("qk").textContent = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl K";
+document.addEventListener("keydown", e => {
+  if ((e.key === "k" && (e.metaKey || e.ctrlKey)) || (e.key === "/" && !e.target.closest?.("input,textarea,select"))) { e.preventDefault(); $("q").focus(); $("q").select(); }
+});
 $("play").addEventListener("click", () => setPlay(!A.playing));
 $("fit").addEventListener("click", () => fit(true));
 $("foldAll").addEventListener("click", () => { if (!A.O) return; A.O.open = new Set([A.src.rootId]); A.O.spread.clear(); select(null); A.O.build(); setTimeout(() => fit(true), 250); kick(); });
