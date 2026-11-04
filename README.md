@@ -1,6 +1,6 @@
 # XML Galaxy
 
-See any XML file as a solar system. The root element is the sun; every element's children orbit it, and each child can open its own orbits of moons. What orbits what is fixed by the file and never changes. Bodies drift on their orbits, you can drag them about, and they drift back.
+See any XML file as a solar system. The root element is the sun; every element's children orbit it, each on an orbit of its own (no two bodies ever share one), and each child can open its own orbits of moons. The look follows GitNexus: flat glowing dots on a near-black background, thin curved lines, violet accents. What orbits what is fixed by the file and never changes. Bodies drift on their orbits, you can drag them about, and they drift back.
 
 S-100 Feature Catalogues (such as the IALA S-201 `201_Feature_Catalogue_2.0.0.xml`) get a second view, **By meaning**, where types orbit by how they relate: inheritance, feature links, information links, links in, associations and roles, attributes and allowed values.
 
@@ -27,11 +27,11 @@ Then open <http://localhost:8080/>. Any static file server works. Opening `index
 | Type in the search box | find an element or type; choosing it opens every body on the way and flies there |
 | **Make it the centre** (catalogues) | start the map from another type |
 | Scroll / pinch, drag empty space, double-click empty space | zoom, pan, fit |
-| Keys on the map: `f` fit, space pause, `+` `-` zoom, `Esc` deselect | |
+| Keys on the map: `f` fit, space pause, `+` `-` zoom, `Esc` deselect; `Ctrl K` or `/` search | |
 
 Colours:
 
-- **Plain XML**: body, line and orbit colour is the element's tag (see the colour key). Dashed white lines are id references (`ref`, `href`, `xlink:href="#…"`, `idref`, `…Ref`) to elements already on the map.
+- **Plain XML**: body, line and orbit colour is the element's tag (see the colour key). Dashed cyan lines are id references (`ref`, `href`, `xlink:href="#…"`, `idref`, `…Ref`) to elements already on the map.
 - **Catalogue view**: body colour is what the item is (feature type, information type, association, role, attribute); line and orbit colour is how it links to the body it circles. Dashed lines join a body to something it also links to elsewhere on the map; each item appears once, with the body nearest the sun.
 
 ## Files
