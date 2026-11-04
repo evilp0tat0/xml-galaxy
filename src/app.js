@@ -2,6 +2,10 @@
 (function(){
 "use strict";
 const XO = window.XO, clip = XO.clip;
+/* The released version (RULES.md rule 20). Change it with every change that ships, together with a CHANGELOG.md entry;
+   tools/smoke.mjs fails if the two disagree. */
+const VERSION = "1.1.0";
+XO.VERSION = VERSION;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
 const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -200,7 +204,7 @@ function draw(){
   ctx.globalAlpha = 1;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   drawLabels(lit);
-  $("status").textContent = A.src ? `${O.order.filter(b => b.type !== "group").length} of ${A.src.total.toLocaleString()} ${A.src.mode === "tree" ? "elements" : "types"} shown · zoom ${Math.round(c.k * 100)}%` : "";
+  $("status").textContent = A.src ? `${O.order.filter(b => b.type !== "group").length} of ${A.src.total.toLocaleString()} ${A.src.mode === "tree" ? "elements" : "types"} shown · zoom ${Math.round(c.k * 100)}% · v${VERSION}` : `v${VERSION}`;
 }
 const S = (b) => [A.cam.x + A.cam.k * b.x, A.cam.y + A.cam.k * b.y];
 
