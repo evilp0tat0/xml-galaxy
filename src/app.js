@@ -561,7 +561,7 @@ function loadText(text, name){
   const isFC = !!FC;
   $("modes").hidden = !isFC;
   const rt = doc.documentElement.nodeName;
-  $("rootTag").textContent = rt; $("rootLine").title = "Root element: " + rt; $("rootLine").hidden = false;
+  $("rootLine").hidden = false; renderRootLine();
   const f = $("file"); f.hidden = false;
   f.className = "pill" + (name.startsWith("samples/") ? " warn" : "");
   f.textContent = name.startsWith("samples/") ? "Example: " + name.slice(8).replace(/_/g, " ").replace(/\.xml$/, "") : name;
@@ -623,8 +623,14 @@ function exampleTag(){
   const differ = t => { const a = N.styled(t, "full"), b = N.styled(t, "shorter"), c = N.styled(t, "shortest"); return a !== b && b !== c; };
   return tags.find(differ) || tags.find(t => N.styled(t, "full") !== N.styled(t, "shortest")) || tags[0] || "S100FC:S100_FC_DefinitionSources";
 }
+function renderRootLine(){
+  if (!A.doc) return;
+  const rt = A.doc.documentElement.nodeName, shown = XO.names.show(rt);
+  $("rootTag").textContent = shown; $("rootLine").title = "Root element: " + shown + (shown !== rt ? " (in the file: " + rt + ")" : "");
+}
 function renderNames(){
   const t = exampleTag(), N = XO.names;
+  renderRootLine();
   for (const [id, st] of [["nsFull", "full"], ["nsShorter", "shorter"], ["nsShortest", "shortest"]]) { const el = $(id); el.textContent = N.styled(t, st); el.title = N.styled(t, st); }
   renderRename();
 }
@@ -635,9 +641,9 @@ function selectedTag(){
 function renameForm(tag, inputId){
   const N = XO.names, n = A.src.palette.get("t:" + tag)?.count || 1, cur = N.custom.get(tag) || "";
   const isRoot = A.doc && tag === A.doc.documentElement.nodeName;
-  return `<code>&lt;${esc(tag)}&gt;</code>
-    <div class="row"><input id="${inputId}" data-tag="${esc(tag)}" type="text" value="${esc(cur)}" placeholder="${esc(N.styled(tag, N.style))}" aria-label="New display name for ${esc(tag)}" autocomplete="off"><button class="btn primary" type="button" data-nact="save">Save</button>${cur ? `<button class="btn" type="button" data-nact="reset">Reset</button>` : ""}</div>
-    <p>Shown for every &lt;${esc(tag)}&gt; element${n > 1 ? ` (${n.toLocaleString()} in this file)` : ""}. Leave empty to use the style.${isRoot ? " The centre circle keeps the file's own name." : ""}</p>`;
+  return `<code>&lt;${esc(N.show(tag))}&gt;</code>${N.show(tag) !== tag ? `<p>In the file: &lt;${esc(tag)}&gt;</p>` : ""}
+    <div class="row"><input id="${inputId}" data-tag="${esc(tag)}" type="text" value="${esc(cur)}" placeholder="${esc(N.styled(tag, N.style))}" aria-label="New display name for ${esc(N.show(tag))}" autocomplete="off"><button class="btn primary" type="button" data-nact="save">Save</button>${cur ? `<button class="btn" type="button" data-nact="reset">Reset</button>` : ""}</div>
+    <p>Shown for every element with this tag${n > 1 ? ` (${n.toLocaleString()} in this file)` : ""}. Leave empty to use the style.${isRoot ? " The centre circle keeps the file's own name." : ""}</p>`;
 }
 function renderRename(){
   const box = $("renameArea"), N = XO.names, tag = selectedTag();
