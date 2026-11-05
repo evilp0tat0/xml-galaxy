@@ -1,6 +1,6 @@
 @echo off
-rem XML Galaxy: double-click to open the app in your browser.
-title XML Galaxy
+rem XML viewer: double-click to open the app in your browser.
+title XML viewer
 cd /d "%~dp0"
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0serve.ps1"
 if errorlevel 1 (

@@ -626,7 +626,7 @@ function renderLegend(){
 }
 
 /* ---------------- display names ---------------- */
-const NAMES_KEY = "xml-galaxy.names";
+const NAMES_KEY = "xml-viewer.names";
 (function loadNames(){
   try {
     const v = JSON.parse(localStorage.getItem(NAMES_KEY) || "null");
@@ -636,7 +636,7 @@ const NAMES_KEY = "xml-galaxy.names";
   const r = document.querySelector(`input[name="nstyle"][value="${XO.names.style}"]`); if (r) r.checked = true;
 })();
 /* the explanations in the Display names box: shown unless the viewer hides them */
-const INFO_KEY = "xml-galaxy.namesInfo";
+const INFO_KEY = "xml-viewer.namesInfo";
 function setNamesInfo(on){
   document.body.classList.toggle("ninfo-off", !on);
   for (const b of document.querySelectorAll('button[data-nact="info"]')) { b.textContent = on ? "Hide info" : "Show info"; b.setAttribute("aria-pressed", on); }
