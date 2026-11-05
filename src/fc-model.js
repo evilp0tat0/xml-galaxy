@@ -16,8 +16,9 @@ const XSI = "http://www.w3.org/2001/XMLSchema-instance";
 const keyOf = it => it.kind + ":" + it.code;
 const state = { inherited: true };
 /* ---------- XML helpers (namespace-agnostic: match by local name) ---------- */
-const kids = (el, n) => el ? [...el.children].filter(c => c.localName === n) : [];
-const kid = (el, n) => kids(el, n)[0] || null;
+/* walk the child elements directly: copying el.children for every lookup was most of the time spent reading a catalogue */
+const kids = (el, n) => { const out = []; for (let c = el?.firstElementChild; c; c = c.nextElementSibling) if (c.localName === n) out.push(c); return out; };
+const kid = (el, n) => { for (let c = el?.firstElementChild; c; c = c.nextElementSibling) if (c.localName === n) return c; return null; };
 const txt = (el, n) => { const k = kid(el, n); return k ? k.textContent.trim() : ""; };
 const refOf = (el, n) => { const k = kid(el, n); return k ? (k.getAttribute("ref") || k.textContent || "").trim() : ""; };
 const texts = (el, n) => kids(el, n).map(k => k.textContent.trim()).filter(Boolean);

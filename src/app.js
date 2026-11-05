@@ -29,30 +29,81 @@ function resize(){
   DPR = Math.min(2, window.devicePixelRatio || 1);
   W = canvas.clientWidth; H = canvas.clientHeight;
   canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
-  kick();
+  freeCache = null; kick();
 }
-/* the free part of the screen: below the top bar, left of the side panel */
+/* the free part of the screen: below the top bar, left of the side panel.
+   Measuring the panels makes the browser lay out the page, and the camera asks for this every frame while it
+   follows a body, so the answer is kept until something it depends on changes. Showing or hiding a panel or
+   opening the colour key is seen at once; new sizes or content (window, fonts, a wrapping top bar) clear it. */
+let freeCache = null, freeKey = "", sliding = false;
 function freeArea(){
-  const tabs = $("modes"), top = (tabs.hidden ? $("top") : tabs).getBoundingClientRect().bottom + 8;
-  const side = $("side"), sr = side.hidden ? null : side.getBoundingClientRect();
+  const tabs = $("modes"), side = $("side"), lg = $("legend"), key = `${W} ${H} ${tabs.hidden} ${side.hidden} ${lg.open}`;
+  /* while the side panel slides in its box moves every frame, so measure it every frame, as before */
+  if (freeCache && key === freeKey && !sliding) return freeCache;
+  const top = (tabs.hidden ? $("top") : tabs).getBoundingClientRect().bottom + 8;
+  const sr = side.hidden ? null : side.getBoundingClientRect();
   const right = sr && W > 760 ? sr.left - 56 : W - 56;
   const bottom = sr && W <= 760 ? sr.top - 8 : $("foot").getBoundingClientRect().top - 8;
-  const lg = $("legend"), left = lg.open && W > 1100 ? Math.min(lg.getBoundingClientRect().right + 8, W * 0.3) : 8;
-  return { x0:left, y0:top, x1:right, y1:Math.max(top + 80, bottom) };
+  const left = lg.open && W > 1100 ? Math.min(lg.getBoundingClientRect().right + 8, W * 0.3) : 8;
+  freeKey = key;
+  return freeCache = { x0:left, y0:top, x1:right, y1:Math.max(top + 80, bottom) };
+}
+{
+  const forget = () => { freeCache = null; }, side = $("side"), panels = [$("top"), $("modes"), $("legend")];
+  if (window.ResizeObserver) { const ro = new ResizeObserver(forget); for (const el of [...panels, $("foot")]) ro.observe(el); }
+  /* a size change is only reported after the next frame, so also forget as soon as their content changes */
+  const mo = new MutationObserver(forget); for (const el of panels) mo.observe(el, { subtree:true, childList:true, characterData:true, attributes:true });
+  side.addEventListener("animationstart", e => { if (e.target === side) sliding = true; });
+  for (const t of ["animationend", "animationcancel"]) side.addEventListener(t, e => { if (e.target === side) { sliding = false; freeCache = null; } });
 }
 
 /* ---------------- frame loop ---------------- */
-let raf = 0, last = 0;
-function kick(){ if (!raf) raf = requestAnimationFrame(frame); }
+/* Physics runs every frame, but the canvas is only drawn again when the picture would change: after a kick()
+   (any change of state), while the camera zooms, ghosts fade or a search pulse runs, or once anything drawn has
+   moved a quarter of a canvas pixel. Text is placed to a quarter pixel anyway, so smaller steps barely show.
+   At fit zoom a big file's bodies creep about 0.02 px a frame, so most frames are skipped; a small catalogue's
+   still move about 0.1 px, so about every other one. When everything comes to rest the exact picture is drawn. */
+let raf = 0, last = 0, dirty = true;
+function kick(){ dirty = true; if (!raf) raf = requestAnimationFrame(frame); }
 function frame(now){
   raf = 0;
   const dt = last ? Math.min(0.05, (now - last) / 1000) : 0; last = now;
-  const spin = A.playing && !A.hover && !A.ptr?.dragging;
+  const spin = A.playing && !!A.O && !A.hover && !A.ptr?.dragging;   /* nothing to turn before a file is loaded */
   const moving = A.O ? A.O.step(dt, spin) : false;
   const camMoving = cameraStep();
-  draw();
-  if (!A.ptr && A.mx != null && (camMoving || moving || spin)) { const h = hit(A.mx, A.my, A.mslop); if ((h?.id ?? null) !== A.hover) setHover(h); else if (h && !$("tip").hidden) placeTip(h); }
-  if (spin || moving || camMoving || A.ptr?.dragging || A.pulse) raf = requestAnimationFrame(frame); else last = 0;
+  /* a pulse whose body has folded away shows nothing, so it need not keep the loop running */
+  const pulsing = !!A.pulse && !!A.O?.bodies.has(A.pulse.id);
+  const busy = spin || moving || camMoving || A.ptr?.dragging || pulsing;
+  const d = moved();
+  const drew = dirty || pulsing || d > 0.25 / DPR || (!busy && d > 0);
+  if (drew) { dirty = false; draw(); remember(); }
+  /* hover still notices a body drifting under a still mouse every frame; the tip moves with the picture */
+  if (!A.ptr && A.mx != null && (camMoving || moving || spin)) { const h = hit(A.mx, A.my, A.mslop); if ((h?.id ?? null) !== A.hover) setHover(h); else if (drew && h && !$("tip").hidden) placeTip(h); }
+  /* setHover above may already have asked for the next frame; asking twice would run two loops */
+  if (busy) { if (!raf) raf = requestAnimationFrame(frame); } else last = 0;
+}
+/* What the canvas last showed, to tell whether a new frame would look any different. */
+const seen = { pos:new Float64Array(0) };
+function remember(){
+  const O = A.O, c = A.cam, s = seen;
+  Object.assign(s, { O, order:O?.order, links:O?.links, ghosts:O?.ghosts.length || 0, k:c.k, W, H, DPR, hover:A.hover, sel:A.sel });
+  if (!O) return;
+  const n = O.order.length; if (s.pos.length < 2 * n) s.pos = new Float64Array(2 * n);
+  for (let i = 0; i < n; i++) { const b = O.order[i]; s.pos[2 * i] = c.x + c.k * b.x; s.pos[2 * i + 1] = c.y + c.k * b.y; }
+}
+/* How far any body has moved on screen since then; Infinity when something else changed (a rebuild, a zoom,
+   fading ghosts, hover or selection, the canvas size). Bodies off screen count too: their orbits and lines can cross it. */
+function moved(){
+  const O = A.O, c = A.cam, s = seen;
+  if (O !== s.O || O?.order !== s.order || O?.links !== s.links || (O?.ghosts.length || 0) || s.ghosts || c.k !== s.k
+    || W !== s.W || H !== s.H || DPR !== s.DPR || A.hover !== s.hover || A.sel !== s.sel) return Infinity;
+  if (!O) return 0;
+  let m = 0;
+  for (let i = 0, n = O.order.length; i < n; i++) {
+    const b = O.order[i];
+    m = Math.max(m, Math.abs(c.x + c.k * b.x - s.pos[2 * i]), Math.abs(c.y + c.k * b.y - s.pos[2 * i + 1]));
+  }
+  return m;
 }
 function cameraStep(){
   const c = A.cam, f = REDUCED ? 1 : 0.13;
@@ -123,6 +174,10 @@ const MONO_S = '500 10.5px "JetBrains Mono", "Fira Code", ui-monospace, Menlo, C
 const SUN = '600 13px "JetBrains Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace';
 const widths = new Map();
 function textW(t, font){ const k = font + "|" + t; let w = widths.get(k); if (w == null) { ctx.font = font; w = ctx.measureText(t).width; widths.set(k, w); if (widths.size > 6000) widths.clear(); } return w; }
+/* text measured before the web fonts arrived has the stand-in font's width: measure again, and redraw */
+document.fonts?.addEventListener?.("loadingdone", () => { widths.clear(); freeCache = null; kick(); });
+/* a canvas the browser dropped (e.g. while in the background) comes back blank */
+canvas.addEventListener("contextrestored", kick);
 
 /* GitNexus look: flat discs on a near-black void, thin curved edges, one hairline orbit per body.
    With something lit, the rest shrinks and fades, and the lit body and its neighbours grow. */
@@ -131,15 +186,83 @@ function bodyScale(b, lit){
   if (b.id === lit.d.id) return 1.5;
   return lit.nodes.has(b.id) ? 1.15 : 0.6;
 }
+/* Links longer than the screen are stroked only where they cross it (see draw); a piece of a quadratic curve is itself one.
+   crossings: the values of t where one coordinate of the curve p0, p1, p2 equals v (the caller keeps those in 0..1) */
+function crossings(p0, p1, p2, v, out){
+  const a = p0 - 2 * p1 + p2, b = 2 * (p1 - p0), c = p0 - v;
+  if (Math.abs(a) <= 1e-12 * (Math.abs(b) + Math.abs(c))) { if (b) out.push(-c / b); return; }
+  const d = b * b - 4 * a * c; if (d < 0) return;
+  const q = -(b + (b < 0 ? -1 : 1) * Math.sqrt(d)) / 2;
+  out.push(q / a); if (q) out.push(c / q);
+}
+/* the stretches [t0, t1] of a quadratic curve that lie inside the box L..R, T..B */
+function spansInBox(x0, y0, x1, y1, x2, y2, L, T, R, B){
+  const ts = [0, 1];
+  crossings(x0, x1, x2, L, ts); crossings(x0, x1, x2, R, ts); crossings(y0, y1, y2, T, ts); crossings(y0, y1, y2, B, ts);
+  const s = ts.filter(t => t >= 0 && t <= 1).sort((p, q) => p - q), out = [];
+  for (let i = 1; i < s.length; i++) {
+    if (s[i] <= s[i - 1]) continue;
+    const t = (s[i - 1] + s[i]) / 2, u = 1 - t, x = u * u * x0 + 2 * u * t * x1 + t * t * x2, y = u * u * y0 + 2 * u * t * y1 + t * t * y2;
+    if (x < L || x > R || y < T || y > B) continue;
+    if (out.length && out[out.length - 1][1] === s[i - 1]) out[out.length - 1][1] = s[i]; else out.push([s[i - 1], s[i]]);
+  }
+  return out;
+}
+/* how far along a quadratic curve the point at t lies (exact), so a piece's dashes line up with the whole curve's */
+function lengthTo(x0, y0, x1, y1, x2, y2, t){
+  const ax = x1 - x0, ay = y1 - y0, bx = x0 - 2 * x1 + x2, by = y0 - 2 * y1 + y2;
+  const a = bx * bx + by * by, b = ax * bx + ay * by, c = ax * ax + ay * ay;
+  if (a <= 1e-12 * c) return 2 * Math.sqrt(c) * t;
+  const p0 = b / a, m = Math.max(c / a - p0 * p0, 1e-300), sm = Math.sqrt(m), g = p => p * Math.sqrt(p * p + m) + m * Math.asinh(p / sm);
+  return Math.sqrt(a) * (g(t + p0) - g(p0));
+}
+const NODASH = [], DASH_INH = [3, 4], DASH_X = [5, 5];
+/* line style is set only when it changes: hundreds of rings and links mostly share a few styles */
+function penFor(g){ let col, w, dash; return (c, lw, d) => { if (c !== col) g.strokeStyle = col = c; if (lw !== w) g.lineWidth = w = lw; if (d !== dash) g.setLineDash(dash = d); }; }
+/* One body's orbits, centred at x, y: hairlines, each its own stroke (one path for many would paint their overlaps once
+   instead of building them up). A ring is skipped when it misses the w × h canvas, or the whole canvas lies inside it. */
+function strokeRings(g, pen, b, x, y, k, lit, w, h){
+  const near = Math.hypot(x - Math.max(0, Math.min(w, x)), y - Math.max(0, Math.min(h, y))), far = Math.hypot(Math.max(x, w - x), Math.max(y, h - y));
+  for (const ring of b.rings) {
+    const rr = ring.r * k, on = lit?.rings.has(ring.id), lw = on ? 1.3 : 0.8;
+    if (rr < 1.5 || near > rr + lw + 2 || far < rr - lw - 2) continue;
+    g.globalAlpha = lit ? (on ? 0.55 : 0.04) : (b.depth === 0 ? 0.16 : 0.12);
+    pen(colour(ring.color), lw, ring.grp.folded ? DASH_INH : NODASH);
+    g.beginPath(); g.arc(x, y, rr, 0, Math.PI * 2); g.stroke();
+  }
+}
+/* A body with very many orbits (a spread-out group) has them drawn once into a picture of their own, reused while the zoom,
+   the lit body and the orbits stay the same: one copy instead of hundreds of strokes. The centre is kept to a sixteenth of a
+   pixel, far below what shows, so a slowly drifting planet reuses it too; moving a picture by whole pixels changes nothing.
+   While the zoom changes from one frame to the next a picture would be thrown away at once, so draw() strokes the rings
+   directly then (drawnK), and makes the picture once the zoom holds. */
+const ringPics = new Map();
+let picStamp = 0, drawnK = NaN;
+function drawRingPicture(b, x, y, k, lit){
+  const half = Math.ceil((b.rings[b.rings.length - 1].r * k + 3) * DPR) + 1, size = 2 * half;
+  if (size > canvas.width || size > canvas.height) return false;
+  const qx = Math.round(x * DPR * 16) / 16, qy = Math.round(y * DPR * 16) / 16, ix = Math.floor(qx), iy = Math.floor(qy);
+  if (ix + half < 0 || iy + half < 0 || ix - half > canvas.width || iy - half > canvas.height) return true;
+  const fx = qx - ix, fy = qy - iy, who = lit ? lit.d.id : null;
+  let p = ringPics.get(b.id);
+  if (!p || p.rings !== b.rings || p.k !== k || p.fx !== fx || p.fy !== fy || p.who !== who || p.size !== size || p.dpr !== DPR) {
+    /* the same canvas is reused: resizing it frees the old pixels at once, rather than leaving them for the garbage collector */
+    const cv = p?.cv ?? document.createElement("canvas");
+    if (cv.width !== size || cv.height !== size) { cv.width = size; cv.height = size; }
+    ringPics.set(b.id, p = { cv, rings:b.rings, k, fx, fy, who, size, dpr:DPR });
+    const g = cv.getContext("2d");
+    g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, size, size); g.setTransform(DPR, 0, 0, DPR, 0, 0);
+    strokeRings(g, penFor(g), b, (half + fx) / DPR, (half + fy) / DPR, k, lit, size / DPR, size / DPR);
+  }
+  p.stamp = picStamp;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.drawImage(p.cv, ix - half, iy - half); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  return true;
+}
 function draw(){
   const c = A.cam;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  const bg = ctx.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, "#06060a"); bg.addColorStop(1, "#0a0a10");
-  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
-  const vg = ctx.createRadialGradient(W * 0.5, H * 0.5, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.7);
-  vg.addColorStop(0, "rgba(124,58,237,0.05)"); vg.addColorStop(1, "rgba(124,58,237,0)");
-  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+  /* the background gradients are the canvas's CSS background (index.html), painted once instead of every frame */
+  ctx.clearRect(0, 0, W, H);
   const O = A.O; if (!O) return;
   const lit = litSet();
 
@@ -147,30 +270,55 @@ function draw(){
      loses precision at the very large zooms needed for deep moons */
   const k = c.k, X = b => c.x + k * b.x, Y = b => c.y + k * b.y;
   const onScreen = (x, y, r) => x + r > -40 && y + r > -40 && x - r < W + 40 && y - r < H + 40;
+  const pen = penFor(ctx);
   /* orbits: hairlines, one per body */
-  for (const b of O.order) for (const ring of b.rings) {
-    const x = X(b), y = Y(b), rr = ring.r * k;
-    if (rr < 1.5 || !onScreen(x, y, rr) || rr > 4 * Math.hypot(W, H) + Math.hypot(x - W / 2, y - H / 2)) continue;
-    const on = lit?.rings.has(ring.id);
-    ctx.globalAlpha = lit ? (on ? 0.55 : 0.04) : (b.depth === 0 ? 0.16 : 0.12);
-    ctx.strokeStyle = colour(ring.color); ctx.lineWidth = on ? 1.3 : 0.8;
-    ctx.setLineDash(ring.grp.folded ? [3, 4] : []);
-    ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.stroke();
+  picStamp++;
+  const zooming = k !== drawnK; drawnK = k;
+  for (const b of O.order) {
+    if (!b.rings.length) continue;
+    const x = X(b), y = Y(b);
+    if (b.rings.length >= 64 && !zooming && drawRingPicture(b, x, y, k, lit)) continue;
+    strokeRings(ctx, pen, b, x, y, k, lit, W, H);
   }
-  ctx.setLineDash([]);
-  /* edges: curved, like Sigma's curved edge program */
+  if (!zooming) for (const [id, p] of ringPics) if (p.stamp !== picStamp) ringPics.delete(id);
+  /* edges: curved, like Sigma's curved edge program. The curve lies inside the triangle of its three points, so that box decides
+     whether it can show. One longer than the screen (zoomed in) is stroked only where it crosses the screen,
+     its dashes started where they fall on the whole curve, so none are made off-screen and none crawl */
+  const long = W + H;
+  let pOff = 0;
   for (const l of O.links) {
-    const on = lit?.links.has(l.id), ax = X(l.a), ay = Y(l.a), bx = X(l.b), by = Y(l.b);
-    if (Math.max(ax, bx) < -40 || Math.max(ay, by) < -40 || Math.min(ax, bx) > W + 40 || Math.min(ay, by) > H + 40) continue;
-    if (Math.hypot(bx - ax, by - ay) < 1) continue;
+    const on = lit?.links.has(l.id), ax = X(l.a), ay = Y(l.a), bx = X(l.b), by = Y(l.b), dx = bx - ax, dy = by - ay;
+    if (Math.hypot(dx, dy) < 1) continue;
+    const bend = l.kind === "spoke" ? 0.1 : l.kind === "extra" ? 0.18 : 0.26, cx = (ax + bx) / 2 - dy * bend, cy = (ay + by) / 2 + dx * bend;
+    const w = on ? 2.4 : l.kind === "spoke" ? 0.9 : 1.1, m = w + 8;
+    if (Math.max(ax, bx, cx) < -m || Math.max(ay, by, cy) < -m || Math.min(ax, bx, cx) > W + m || Math.min(ay, by, cy) > H + m) continue;
+    const dash = l.kind === "spoke" ? (l.inh ? DASH_INH : NODASH) : DASH_X;
     ctx.globalAlpha = lit ? (on ? 0.95 : 0.04) : (l.kind === "spoke" ? 0.32 : 0.45);
-    ctx.strokeStyle = colour(l.color); ctx.lineWidth = on ? 2.4 : l.kind === "spoke" ? 0.9 : 1.1;
-    ctx.setLineDash(l.kind === "spoke" ? (l.inh ? [3, 4] : []) : [5, 5]);
-    const dx = bx - ax, dy = by - ay, bend = l.kind === "spoke" ? 0.1 : l.kind === "extra" ? 0.18 : 0.26;
-    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo((ax + bx) / 2 - dy * bend, (ay + by) / 2 + dx * bend, bx, by);
-    ctx.stroke();
+    pen(colour(l.color), w, dash);
+    const poly = Math.hypot(cx - ax, cy - ay) + Math.hypot(bx - cx, by - cy);
+    if (poly < long) {
+      if (pOff) ctx.lineDashOffset = pOff = 0;
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo(cx, cy, bx, by); ctx.stroke();
+      continue;
+    }
+    /* each piece starts and ends on a fixed grid along the curve (a few hundred pixels apart), so panning redraws the same
+       piece moved, as it did the whole curve: the dash ends stay put instead of shifting by a fraction of a pixel */
+    const step = 256 / poly, pieces = [];
+    for (const [s0, s1] of spansInBox(ax, ay, cx, cy, bx, by, -m, -m, W + m, H + m)) {
+      const t0 = Math.floor(s0 / step) * step, t1 = Math.min(1, Math.ceil(s1 / step) * step), last = pieces[pieces.length - 1];
+      if (last && t0 <= last[1]) last[1] = t1; else pieces.push([t0, t1]);
+    }
+    for (const [t0, t1] of pieces) {
+      const u = 1 - t0, f = t1 - t0, v = 1 - t1;
+      const sx = u * u * ax + 2 * u * t0 * cx + t0 * t0 * bx, sy = u * u * ay + 2 * u * t0 * cy + t0 * t0 * by;
+      const ex = v * v * ax + 2 * v * t1 * cx + t1 * t1 * bx, ey = v * v * ay + 2 * v * t1 * cy + t1 * t1 * by;
+      const off = dash.length ? lengthTo(ax, ay, cx, cy, bx, by, t0) % (dash[0] + dash[1]) : 0;
+      if (off !== pOff) ctx.lineDashOffset = pOff = off;
+      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.quadraticCurveTo(sx + f * (u * (cx - ax) + t0 * (bx - cx)), sy + f * (u * (cy - ay) + t0 * (by - cy)), ex, ey); ctx.stroke();
+    }
   }
-  ctx.setLineDash([]);
+  if (pOff) ctx.lineDashOffset = 0;
+  ctx.setLineDash(NODASH);
   /* bodies that are folding away */
   for (const g of O.ghosts) { const x = X(g), y = Y(g), r = g.size * k * g.life; if (r < 0.3 || !onScreen(x, y, r)) continue; ctx.globalAlpha = Math.max(0, g.life) * 0.6 * (lit ? 0.2 : 1); ctx.fillStyle = colour(g.color); ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); }
   /* bodies */
@@ -178,7 +326,9 @@ function draw(){
     const x = X(b), y = Y(b), r = Math.max(b.size * k * bodyScale(b, lit), 1.2);
     if (!onScreen(x, y, r * 3)) continue;
     const on = !lit || lit.nodes.has(b.id), col = colour(b.color);
-    if (b.depth === 0 || b.id === A.sel || (lit && b.id === lit.d.id)) {
+    /* no glow when the body's own solid disc, drawn next, covers the whole screen (zoomed deep into it): it would be hidden */
+    const covers = on && Math.hypot(Math.max(x, W - x), Math.max(y, H - y)) < r - 2;
+    if (!covers && (b.depth === 0 || b.id === A.sel || (lit && b.id === lit.d.id))) {
       const gr = r * (b.depth === 0 ? 3.4 : 2.6);
       ctx.globalAlpha = on ? (b.depth === 0 ? 0.55 : 0.4) : 0.08;
       ctx.drawImage(glowSprite(col), x - gr, y - gr, gr * 2, gr * 2);
@@ -207,9 +357,14 @@ function draw(){
   ctx.globalAlpha = 1;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   drawLabels(lit);
-  $("status").textContent = A.src ? `${O.order.filter(b => b.type !== "group").length} of ${A.src.total.toLocaleString()} ${A.src.mode === "tree" ? "elements" : "types"} shown · ${O.order.reduce((s, b) => s + b.rings.length, 0)} orbits` : "";
-  $("zoomPct").textContent = A.src ? `zoom ${Math.round(c.k * 100)}%` : "";
+  /* the counts only change with a rebuild; writing text, even the same text, makes the page restyle and lay out */
+  if (counted !== O.order) { counted = O.order; countLine = A.src ? `${O.order.filter(b => b.type !== "group").length} of ${A.src.total.toLocaleString()} ${A.src.mode === "tree" ? "elements" : "types"} shown · ${O.order.reduce((s, b) => s + b.rings.length, 0)} orbits` : ""; }
+  setText("status", countLine);
+  setText("zoomPct", A.src ? `zoom ${Math.round(c.k * 100)}%` : "");
 }
+let counted = null, countLine = "";
+const shownText = {};
+function setText(id, t){ if (shownText[id] !== t) { shownText[id] = t; $(id).textContent = t; } }
 const S = (b) => [A.cam.x + A.cam.k * b.x, A.cam.y + A.cam.k * b.y];
 
 /* Labels are placed most important first; one that would overlap a placed label tries other sides, then is skipped. */

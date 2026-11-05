@@ -33,8 +33,8 @@ class Orbits {
     const rn = src.node(src.rootId);
     const root = mk(rn.id, rn, { type:"body", depth:0, parent:null });
     const q = [root];
-    while (q.length) {
-      const n = q.shift();
+    for (let qi = 0; qi < q.length; qi++) {    /* a read index, not shift(): shifting a long queue moves every item each time */
+      const n = q[qi];
       if (n.type === "group" || !this.open.has(n.id) || !src.canOpen(n.id)) continue;
       n.isOpen = true;
       const u = unit(n.depth + 1);

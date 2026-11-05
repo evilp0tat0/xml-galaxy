@@ -17,25 +17,57 @@ const PALETTE = ["#a855f7","#3b82f6","#10b981","#f59e0b","#ec4899","#14b8a6","#f
 
 /* ---------------- any XML: the root element is the sun, child elements orbit their parent ---------------- */
 const KEY_ATTRS = ["name", "id", "code", "key", "title", "label", "type"];
-const KEY_CHILDREN = ["name", "code", "title", "label", "identifier"];
+const KEY_CHILDREN = new Set(["name", "code", "title", "label", "identifier"]);
 const ID_ATTRS = new Set(["id", "ID", "Id", "xml:id"]);
 const REF_ATTR = n => /^(ref|href|idref|idrefs|target|refid|xref)$/i.test(n) || /Ref$/.test(n) || /^ref[A-Z]/.test(n);
 
 function xmlSource(doc, fileName){
   const E = [];              /* index → element record */
-  const byEl = new Map();
-  /* iterative walk, so very deep files cannot overflow the stack; tags keep their prefix (a:item and b:item differ) */
-  (function walk(rootEl){
-    const stack = [[rootEl, null, 0]];
-    while (stack.length) {
-      const [el, parent, depth] = stack.pop();
-      const rec = { i:E.length, el, parent, depth, tag:el.nodeName, kids:[], desc:0 };
-      E.push(rec); byEl.set(el, rec);
-      if (parent) parent.kids.push(rec);
-      for (let c = el.lastElementChild; c; c = c.previousElementSibling) stack.push([c, rec, depth + 1]);
+  const ids = new Map(), refAttrs = [], names = new Map();
+  /* what an attribute's name alone tells us, worked out once per distinct name rather than once per attribute */
+  const nameInfo = n => {
+    let f = names.get(n); if (f) return f;
+    const ln = n.slice(n.indexOf(":") + 1), pri = KEY_ATTRS.indexOf(n), named = ln === "id" || ln === "name", ref = REF_ATTR(ln), isId = ID_ATTRS.has(n) || ln === "id";
+    names.set(n, f = { pri, named, ref, isId, link:ref && !ID_ATTRS.has(n), any:pri >= 0 || named || ref || isId });
+    return f;
+  };
+  /* One pass over an element's attributes gives its key (if an attribute names it), its ids, and its references
+     (resolved once every id is known). Names and values read as plain strings: el.attributes builds and keeps an object per attribute. */
+  function attrKey(r){
+    const el = r.el; let best = KEY_ATTRS.length, byKey = null, byId = null, byRef = null;
+    for (const n of el.getAttributeNames()) {
+      const f = nameInfo(n); if (!f.any) continue;
+      const v = el.getAttribute(n);
+      if (f.pri >= 0 && f.pri < best && v) { best = f.pri; byKey = v; }
+      if (f.named && byId === null) byId = v;
+      if (f.ref && byRef === null) byRef = v;
+      if (f.isId) ids.set(v, r);
+      if (f.link) refAttrs.push(r, n, v);
     }
-    for (let i = E.length - 1; i > 0; i--) E[i].parent.desc += E[i].desc + 1;
-  })(doc.documentElement);
+    /* preference: a key attribute in KEY_ATTRS order, then the first id or name (even empty), then the first reference */
+    return byKey ?? byId ?? (byRef === null ? null : "→ " + byRef.replace(/^#/, ""));
+  }
+  /* no telling attribute: a short child such as <name>, or a leaf's own text */
+  function childKey(el){
+    let c = el.firstElementChild;
+    if (!c) return el.textContent.trim();
+    for (; c; c = c.nextElementSibling) if (KEY_CHILDREN.has(c.localName) && !c.firstElementChild) { const v = c.textContent.trim(); if (v) return v; }
+    return "";
+  }
+  /* a short human name for an element, and its label; those not settled by an attribute are worked out when first asked for */
+  const keyOf = r => r.key ?? (r.key = childKey(r.el));
+  const label = r => { const k = keyOf(r); return k ? r.tag + " · " + clip(k, 40) : r.tag; };
+  /* one walk in document order, without a stack, so very deep files cannot overflow it; tags keep their prefix (a:item and b:item differ) */
+  for (let el = doc.documentElement, up = null; el; ) {
+    const r = { i:E.length, el, parent:up, depth:up ? up.depth + 1 : 0, tag:el.nodeName, kids:[], desc:0, key:null };
+    E.push(r); if (up) up.kids.push(r);
+    if (el.hasAttributes()) r.key = attrKey(r);
+    const first = el.firstElementChild;
+    if (first) { up = r; el = first; continue; }
+    /* a leaf: on to its next sibling, or to the next sibling of the nearest ancestor that has one */
+    while (!(el = el.nextElementSibling) && up) { el = up.el; up = up.parent; }
+  }
+  for (let i = E.length - 1; i > 0; i--) E[i].parent.desc += E[i].desc + 1;
   const id = r => "e" + r.i;
   const rec = idv => E[+String(idv).slice(1)];
 
@@ -46,39 +78,58 @@ function xmlSource(doc, fileName){
   const palette = new Map(tags.map((t, i) => ["t:" + t, { color:PALETTE[i % PALETTE.length], title:"<" + t + ">", count:tagCount.get(t) }]));
   palette.set("ref", { color:"#22d3ee", title:"Points to (id reference)" });
 
-  /* a short human name for an element: its tag plus a telling attribute or child */
-  function keyOf(r){
-    const el = r.el;
-    for (const a of KEY_ATTRS) { const v = el.getAttribute(a); if (v) return v; }
-    for (const at of el.attributes) if (at.localName === "id" || at.localName === "name") return at.value;
-    for (const at of el.attributes) if (REF_ATTR(at.localName)) return "→ " + at.value.replace(/^#/, "");
-    for (const c of el.children) if (KEY_CHILDREN.includes(c.localName) && !c.children.length) { const v = c.textContent.trim(); if (v) return v; }
-    if (!el.children.length) { const v = el.textContent.trim(); if (v) return v; }
-    return "";
-  }
-  for (const r of E) { r.key = keyOf(r); r.label = r.key ? r.tag + " · " + clip(r.key, 40) : r.tag; }
-
-  /* id / idref links */
-  const ids = new Map();
-  for (const r of E) for (const at of r.el.attributes) if (ID_ATTRS.has(at.name) || at.localName === "id") ids.set(at.value, r);
+  /* id / idref links, in document order, now that every id is known */
   const out = new Map(), inn = new Map(), broken = new Map();
-  for (const r of E) for (const at of r.el.attributes) {
-    if (!REF_ATTR(at.localName) || ID_ATTRS.has(at.name)) continue;
-    for (const raw of at.value.split(/\s+/)) {
+  for (let j = 0; j < refAttrs.length; j += 3) {
+    const r = refAttrs[j], attr = refAttrs[j + 1];
+    for (const raw of refAttrs[j + 2].split(/\s+/)) {
       const v = raw.replace(/^#/, ""), t = ids.get(v);
       if (!v || t === r) continue;
-      if (!t) { (broken.get(r) || broken.set(r, []).get(r)).push({ attr:at.name, v }); continue; }
-      (out.get(r) || out.set(r, []).get(r)).push({ to:t, attr:at.name });
-      (inn.get(t) || inn.set(t, []).get(t)).push({ from:r, attr:at.name });
+      if (!t) { (broken.get(r) || broken.set(r, []).get(r)).push({ attr, v }); continue; }
+      (out.get(r) || out.set(r, []).get(r)).push({ to:t, attr });
+      (inn.get(t) || inn.set(t, []).get(t)).push({ from:r, attr });
     }
   }
+  /* only needed while the file is read; the functions below keep this scope alive as long as the file is shown */
+  ids.clear(); names.clear(); refAttrs.length = 0;
+
+  /* Search text: each element's tag, key and attribute values, lower-cased once and joined into one string per run of
+     elements, so a keystroke is a quick scan of a few strings instead of a walk through the document. Runs are made when
+     a search first reaches them: a query that matches early never pays for the rest of the file. XML can never contain
+     the null character \0, so it safely separates the fields: no match can run from one field (or element) into the next,
+     and lower-casing never looks across it, so an element's text lower-cased at once equals each field lower-cased alone.
+     At most KEEP characters are kept this way: in a file of long texts or attributes (coordinate lists, path data) the
+     elements past that are checked one by one, as they always were (matches). */
+  const RUN = 1024, KEEP = 8e6, runs = [];
+  let kept = 0;
+  function run(k){
+    const room = KEEP - kept; if (room <= 0) return null;
+    const i0 = k * RUN, n = Math.min(E.length - i0, RUN), parts = new Array(n), at = new Int32Array(n + 1);
+    let pos = 0;
+    for (let j = 0; j < n; j++) {
+      const r = E[i0 + j], el = r.el; let s = r.tag + "\0" + keyOf(r) + "\0";
+      if (el.hasAttributes()) for (const nm of el.getAttributeNames()) { if (pos + s.length > room) break; s += el.getAttribute(nm) + "\0"; }
+      if (pos + s.length > room) { kept = KEEP; return null; }
+      s = s.toLowerCase(); parts[j] = s; at[j] = pos; pos += s.length;
+    }
+    at[n] = pos; kept += pos;
+    return runs[k] = { i0, at, text:parts.join("") };
+  }
+  function matches(r, q){
+    if (r.tag.toLowerCase().includes(q) || keyOf(r).toLowerCase().includes(q)) return true;
+    const el = r.el;
+    if (el.hasAttributes()) for (const nm of el.getAttributeNames()) if (el.getAttribute(nm).toLowerCase().includes(q)) return true;
+    return false;
+  }
+  /* for xpath(): each element's place among its same-tag siblings, and how many there are; a parent can have thousands of children */
+  let nth = null, same = null;
 
   const size = r => r.depth === 0 ? 26 : Math.min(17, 4.5 + 2.3 * Math.log2(1 + r.desc));
   return {
     mode:"tree", fileName, palette, total:E.length, rootId:id(E[0]),
     title:"<" + E[0].tag + ">",
     has: x => !!rec(x),
-    node(x){ const r = rec(x); return r && { id:x, label:r.label, color:"t:" + r.tag, size:size(r), kind:"<" + r.tag + ">" }; },
+    node(x){ const r = rec(x); return r && { id:x, label:label(r), color:"t:" + r.tag, size:size(r), kind:"<" + r.tag + ">" }; },
     canOpen: x => { const r = rec(x); return !!r && r.kids.length > 0; },
     groups(x){
       const r = rec(x); if (!r) return [];
@@ -87,39 +138,51 @@ function xmlSource(doc, fileName){
       return [...by].map(([tag, ks]) => ({ key:"t:" + tag, title:"<" + tag + ">", color:"t:" + tag,
         entries:ks.map(k => ({ id:id(k), short:"", label:"child <" + tag + ">" })) }));
     },
-    refs(x){ const r = rec(x); return (out.get(r) || []).map(o => ({ to:id(o.to), color:"ref", short:"@" + o.attr, label:o.attr + " → " + o.to.label })); },
+    refs(x){ const r = rec(x); return (out.get(r) || []).map(o => ({ to:id(o.to), color:"ref", short:"@" + o.attr, label:o.attr + " → " + label(o.to) })); },
     pathTo(x){ const c = []; for (let r = rec(x); r; r = r.parent) c.unshift(id(r)); return c; },
     search(q){
-      q = q.trim().toLowerCase(); if (!q) return [];
+      q = q.trim().toLowerCase(); if (!q || q.includes("\0")) return [];
       const res = [];
-      for (const r of E) {
-        if (r.tag.toLowerCase().includes(q) || r.key.toLowerCase().includes(q)) res.push(r);
-        else for (const at of r.el.attributes) if (at.value.toLowerCase().includes(q)) { res.push(r); break; }
-        if (res.length >= 40) break;
+      /* the first 40 matching elements in document order: find a match, look up its element, go on after that element */
+      for (let k = 0; res.length < 40 && k * RUN < E.length; k++) {
+        const R = runs[k] ?? run(k);
+        if (!R) {
+          for (let i = k * RUN, e = Math.min(E.length, i + RUN); i < e && res.length < 40; i++) if (matches(E[i], q)) res.push(E[i]);
+          continue;
+        }
+        const { i0, at, text } = R;
+        for (let p = text.indexOf(q); p >= 0 && res.length < 40; ) {
+          let lo = 0, hi = at.length - 2;
+          while (lo < hi) { const m = (lo + hi + 1) >> 1; if (at[m] <= p) lo = m; else hi = m - 1; }
+          res.push(E[i0 + lo]); p = text.indexOf(q, at[lo + 1]);
+        }
       }
-      return res.map(r => ({ id:id(r), label:r.label, sub:xpath(r) }));
+      return res.map(r => ({ id:id(r), label:label(r), sub:xpath(r) }));
     },
     info(x){
       const r = rec(x); if (!r) return null;
       const direct = [...r.el.childNodes].filter(n => n.nodeType === 3 || n.nodeType === 4).map(n => n.nodeValue).join("").trim();
       const kidTags = new Map(); for (const k of r.kids) kidTags.set(k.tag, (kidTags.get(k.tag) || 0) + 1);
       return {
-        kind:"Element <" + r.tag + ">" + (r.depth === 0 ? " · the centre" : ""), title:r.key || r.tag, code:xpath(r),
+        kind:"Element <" + r.tag + ">" + (r.depth === 0 ? " · the centre" : ""), title:keyOf(r) || r.tag, code:xpath(r),
         def: direct ? clip(direct, 600) : "",
         attrs:[...r.el.attributes].map(a => [a.name, a.value]),
         facts:[r.desc ? r.desc + " elements inside" : "no child elements", r.el.namespaceURI ? "ns " + r.el.namespaceURI : ""].filter(Boolean),
         orbits:[...kidTags].map(([t, n]) => ({ color:"t:" + t, title:"<" + t + ">", count:n })),
-        linksOut:(out.get(r) || []).map(o => ({ id:id(o.to), text:"@" + o.attr + " → " + o.to.label, color:"ref" })),
-        linksIn:(inn.get(r) || []).map(o => ({ id:id(o.from), text:o.from.label + " @" + o.attr, color:"ref" })),
+        linksOut:(out.get(r) || []).map(o => ({ id:id(o.to), text:"@" + o.attr + " → " + label(o.to), color:"ref" })),
+        linksIn:(inn.get(r) || []).map(o => ({ id:id(o.from), text:label(o.from) + " @" + o.attr, color:"ref" })),
         broken:(broken.get(r) || []).map(b => "@" + b.attr + " → " + b.v + " (not found in this file)")
       };
     }
   };
+  /* sibling positions are counted once per parent, the first time one of its children needs a path */
   function xpath(r){
+    if (!nth) { nth = new Int32Array(E.length); same = new Int32Array(E.length); }
     const parts = [];
     for (let x = r; x; x = x.parent) {
-      const same = x.parent ? x.parent.kids.filter(k => k.tag === x.tag) : [x];
-      parts.unshift(x.tag + (same.length > 1 ? "[" + (same.indexOf(x) + 1) + "]" : ""));
+      const p = x.parent;
+      if (p && !nth[x.i]) { const c = new Map(); for (const k of p.kids) c.set(k.tag, nth[k.i] = (c.get(k.tag) || 0) + 1); for (const k of p.kids) same[k.i] = c.get(k.tag); }
+      parts.unshift(x.tag + (p && same[x.i] > 1 ? "[" + nth[x.i] + "]" : ""));
     }
     return "/" + parts.join("/");
   }

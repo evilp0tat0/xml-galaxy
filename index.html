@@ -6,7 +6,11 @@
 <title>XML Galaxy</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@400;500;600;700&display=swap">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- the web fonts must not hold up the first paint (or the whole page when offline): load the stylesheet as "print",
+     switch it on once it is in, and let the system fonts stand in until then -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@400;500;600;700&display=swap" media="print" onload="this.onload=null;this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@400;500;600;700&display=swap"></noscript>
 <style>
 /* Layout after GitNexus: a header bar, the graph filling the rest, a side panel docked right, a status bar along the bottom.
    View tabs float at the top of the graph, zoom controls bottom-right. Dark only, like GitNexus. */
@@ -29,7 +33,9 @@ button,input,select{font:inherit;color:inherit}
 code,.mono{font-family:var(--font-mono);font-size:.9em}
 ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:8px}::-webkit-scrollbar-track{background:transparent}
 
-#sky{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+/* the sky's dark gradient and faint violet glow are painted here once, so the canvas only has to clear itself each frame */
+#sky{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab;
+  background:radial-gradient(circle max(70vw,70vh) at 50% 50%,rgba(124,58,237,.05),rgba(124,58,237,0)),linear-gradient(#06060a,#0a0a10)}
 #sky.grabbing{cursor:grabbing}#sky.pointing{cursor:pointer}
 
 .glass{position:fixed;z-index:5;background:color-mix(in srgb,var(--elevated) 92%,transparent);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
