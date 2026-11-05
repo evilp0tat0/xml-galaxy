@@ -134,12 +134,8 @@ function bodyScale(b, lit){
 function draw(){
   const c = A.cam;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  const bg = ctx.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, "#06060a"); bg.addColorStop(1, "#0a0a10");
-  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
-  const vg = ctx.createRadialGradient(W * 0.5, H * 0.5, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.7);
-  vg.addColorStop(0, "rgba(124,58,237,0.05)"); vg.addColorStop(1, "rgba(124,58,237,0)");
-  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+  /* the backdrop is the canvas's CSS background, painted once; repainting full-screen gradients every frame tripled the frame time */
+  ctx.clearRect(0, 0, W, H);
   const O = A.O; if (!O) return;
   const lit = litSet();
 
@@ -207,9 +203,12 @@ function draw(){
   ctx.globalAlpha = 1;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   drawLabels(lit);
-  $("status").textContent = A.src ? `${O.order.filter(b => b.type !== "group").length} of ${A.src.total.toLocaleString()} ${A.src.mode === "tree" ? "elements" : "types"} shown · ${O.order.reduce((s, b) => s + b.rings.length, 0)} orbits` : "";
-  $("zoomPct").textContent = A.src ? `zoom ${Math.round(c.k * 100)}%` : "";
+  /* only touch the page when the text changes, so the browser does not redo layout every frame */
+  setText("status", A.src ? `${O.order.filter(b => b.type !== "group").length} of ${A.src.total.toLocaleString()} ${A.src.mode === "tree" ? "elements" : "types"} shown · ${O.order.reduce((s, b) => s + b.rings.length, 0)} orbits` : "");
+  setText("zoomPct", A.src ? `zoom ${Math.round(c.k * 100)}%` : "");
 }
+const shownText = new Map();
+function setText(id, t){ if (shownText.get(id) !== t) { shownText.set(id, t); $(id).textContent = t; } }
 const S = (b) => [A.cam.x + A.cam.k * b.x, A.cam.y + A.cam.k * b.y];
 
 /* Labels are placed most important first; one that would overlap a placed label tries other sides, then is skipped. */

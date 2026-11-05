@@ -29,10 +29,10 @@ button,input,select{font:inherit;color:inherit}
 code,.mono{font-family:var(--font-mono);font-size:.9em}
 ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:8px}::-webkit-scrollbar-track{background:transparent}
 
-#sky{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#sky{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab;background:radial-gradient(circle 70vmax at 50% 50%,rgba(124,58,237,.05),rgba(124,58,237,0)),linear-gradient(#06060a,#0a0a10)}
 #sky.grabbing{cursor:grabbing}#sky.pointing{cursor:pointer}
 
-.glass{position:fixed;z-index:5;background:color-mix(in srgb,var(--elevated) 92%,transparent);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.glass{position:fixed;z-index:5;background:color-mix(in srgb,var(--elevated) 92%,transparent);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
 
 /* header */
 .top{position:fixed;z-index:6;top:0;left:0;right:0;min-height:calc(var(--hdr) + env(safe-area-inset-top,0px));padding:calc(env(safe-area-inset-top,0px) + 9px) max(16px,env(safe-area-inset-right,0px)) 9px max(16px,env(safe-area-inset-left,0px));display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;background:var(--deep);border-bottom:1px dashed var(--line)}
@@ -68,7 +68,7 @@ select.btn option{background:var(--surface);color:var(--text)}
 .hacts{display:flex;gap:8px;align-items:center}
 
 /* view tabs, floating at the top of the graph */
-.tabs{position:fixed;z-index:5;top:calc(var(--hdr) + env(safe-area-inset-top,0px) + 14px);left:50%;transform:translateX(-50%);display:flex;gap:4px;padding:4px;border-radius:9px;border:1px solid var(--line);background:color-mix(in srgb,var(--elevated) 90%,transparent);backdrop-filter:blur(8px)}
+.tabs{position:fixed;z-index:5;top:calc(var(--hdr) + env(safe-area-inset-top,0px) + 14px);left:50%;transform:translateX(-50%);display:flex;gap:4px;padding:4px;border-radius:9px;border:1px solid var(--line);background:color-mix(in srgb,var(--elevated) 90%,transparent)}
 .tabs button{display:flex;align-items:center;gap:6px;border:0;background:transparent;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:500;color:var(--muted);cursor:pointer;white-space:nowrap}
 .tabs button:hover{background:var(--hover);color:var(--text)}
 .tabs button[aria-pressed="true"]{background:var(--accent);color:#fff}
