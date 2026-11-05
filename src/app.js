@@ -1,4 +1,4 @@
-/* XML Galaxy: drawing, camera and interaction. */
+/* XML Orbitree: drawing, camera and interaction. */
 (function(){
 "use strict";
 const XO = window.XO, clip = XO.clip;
