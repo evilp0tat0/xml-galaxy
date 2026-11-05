@@ -2,7 +2,7 @@
 
 See any XML file as a solar system. The root element is the sun; every element's children orbit it, each on an orbit of its own (no two bodies ever share one), and each child can open its own orbits of moons. The look follows GitNexus: flat glowing dots on a near-black background, thin curved lines, violet accents. What orbits what is fixed by the file and never changes. Bodies drift on their orbits, you can drag them about, and they drift back.
 
-A file opens as one circle: its root element, named after the file (the root's `<…:name>` child, such as `Aids to Navigation(AtoN) Information`, or else the file name). The number inside each circle is how many direct child elements it has. Hover the centre to see the file's header fields (scope, version, date, product, producer …); the root element's tag is shown at the top of the page.
+A file opens as one circle: its root element, named after the file (the root's `<…:name>` child, such as `Aids to Navigation(AtoN) Information`, or else the file name). The number inside each circle is how many direct child elements it has. A circle's size follows the same count on a 1–100 scale: the element with the most direct children in the file is 100, an element with none is 1, and the scale is the same at every depth (the side panel shows each element's size). Hover the centre to see the file's header fields (scope, version, date, product, producer …); the root element's tag is shown at the top of the page.
 
 S-100 Feature Catalogues (such as the IALA S-201 `201_Feature_Catalogue_2.0.0.xml`) get a second view, **By meaning**, where types orbit by how they relate: inheritance, feature links, information links, links in, associations and roles, attributes and allowed values.
 

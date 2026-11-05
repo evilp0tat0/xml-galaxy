@@ -176,10 +176,14 @@ function xmlSource(doc, fileName){
     }
   }
 
-  const size = r => r.depth === 0 ? 26 : Math.min(17, 4.5 + 2.3 * Math.log2(1 + r.desc));
+  /* Size on a 1–100 scale of direct children: the element with the most children in this file is 100,
+     an element with none is 1. The same scale holds at every depth. */
+  let maxKids = 1; for (const r of E) if (r.kids.length > maxKids) maxKids = r.kids.length;
+  const score = r => Math.round(1 + 99 * r.kids.length / maxKids);
+  const size = r => 3 + 25 * (score(r) - 1) / 99;
   return {
     mode:"tree", fileName, palette, total:E.length, rootId:id(E[0]),
-    title:fileTitle, rootTag:R0.tag, startOpen:false, header,
+    title:fileTitle, rootTag:R0.tag, startOpen:false, header, flatSize:true,
     has: x => !!rec(x),
     tagOf: x => rec(x)?.tag || "",
     node(x){ const r = rec(x); return r && { id:x, label:labelOf(r), color:"t:" + r.tag, size:size(r), kind:"<" + dn(r.tag) + ">", tag:r.tag, kids:r.kids.length }; },
@@ -212,7 +216,7 @@ function xmlSource(doc, fileName){
         header:r.depth === 0 ? header() : null,
         def: direct ? clip(direct, 600) : "",
         attrs:[...r.el.attributes].map(a => [a.name, a.value]),
-        facts:[r.kids.length ? r.kids.length + " child element" + (r.kids.length === 1 ? "" : "s") : "no child elements", r.desc > r.kids.length ? r.desc + " elements inside in all" : "", r.el.namespaceURI ? "ns " + r.el.namespaceURI : ""].filter(Boolean),
+        facts:["size " + score(r) + " of 100", r.kids.length ? r.kids.length + " child element" + (r.kids.length === 1 ? "" : "s") : "no child elements", r.desc > r.kids.length ? r.desc + " elements inside in all" : "", r.el.namespaceURI ? "ns " + r.el.namespaceURI : ""].filter(Boolean),
         orbits:[...kidTags].map(([t, n]) => ({ color:"t:" + t, title:"<" + dn(t) + ">", count:n })),
         linksOut:(out.get(r) || []).map(o => ({ id:id(o.to), text:"@" + o.attr + " → " + labelOf(o.to), color:"ref" })),
         linksIn:(inn.get(r) || []).map(o => ({ id:id(o.from), text:labelOf(o.from) + " @" + o.attr, color:"ref" })),
