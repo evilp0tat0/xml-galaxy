@@ -6,7 +6,7 @@
 <title>XML Galaxy</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Exo+2:wght@400;500;600;700&family=Orbitron:wght@500;600;700&display=swap">
 <style>
 /* Layout after GitNexus: a header bar, the graph filling the rest, a side panel docked right, a status bar along the bottom.
    View tabs float at the top of the graph, zoom controls bottom-right. Dark only, like GitNexus. */
@@ -15,8 +15,10 @@
   --line:#1e1e2a;--line-2:#2a2a3a;
   --text:#e4e4ed;--muted:#8888a0;--faint:#5a5a70;
   --accent:#7c3aed;--accent-dim:#5b21b6;--accent-text:#a78bfa;--pink:#ec4899;--ok:#10b981;--warn:#f59e0b;--danger:#f87171;
-  --font-ui:"Outfit",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-  --font-mono:"JetBrains Mono","Fira Code",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  /* space look: Orbitron for titles and numbers, Exo 2 for everything you read */
+  --font-ui:"Exo 2",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-mono:"Exo 2",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-display:"Orbitron","Exo 2",system-ui,sans-serif;
   --hdr:52px;--foot:30px;--top:calc(var(--hdr) + env(safe-area-inset-top,0px));
   color-scheme:dark;
 }
@@ -39,7 +41,7 @@ code,.mono{font-family:var(--font-mono);font-size:.9em}
 .brand{display:flex;align-items:center;gap:10px;margin-right:4px}
 .mark{width:28px;height:28px;flex:none;display:grid;place-items:center;border-radius:7px;background:linear-gradient(135deg,var(--accent),var(--pink));box-shadow:0 0 20px rgba(124,58,237,.4)}
 .mark svg{width:18px;height:18px}
-.brand h1{font-size:15px;font-weight:600;margin:0;letter-spacing:-.01em;white-space:nowrap}
+.brand h1{font:600 15px var(--font-display);margin:0;letter-spacing:.06em;white-space:nowrap}
 .pill{display:inline-flex;align-items:center;gap:7px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surface);font-size:13px;color:var(--muted)}
 .pill::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--ok);flex:none;animation:blink 2s ease-in-out infinite}
 .pill.warn::before{background:var(--warn)}
@@ -77,7 +79,7 @@ body:has(#rootLine:not([hidden])) .tabs{top:calc(var(--top) + 44px)}
 
 /* the file's root element, small but clear, at the top of the map */
 .rootline{position:fixed;z-index:5;top:calc(var(--top) + 9px);left:50%;transform:translateX(-50%);max-width:calc(100vw - 32px);display:flex;align-items:center;gap:8px;padding:4px 11px;border-radius:7px;border:1px solid var(--line);background:color-mix(in srgb,var(--elevated) 92%,transparent);backdrop-filter:blur(8px);white-space:nowrap;overflow:hidden}
-.rootline span{flex:none;color:var(--muted);font-size:10px;font-weight:500;letter-spacing:.08em;text-transform:uppercase}
+.rootline span{flex:none;color:var(--muted);font-family:var(--font-display);font-size:9px;font-weight:500;letter-spacing:.08em;text-transform:uppercase}
 .rootline code{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text);font:500 12px var(--font-mono)}
 
 /* zoom and play controls, bottom-right of the graph */
@@ -97,7 +99,7 @@ body:has(.side:not([hidden])) .ctrls{right:calc(min(380px,100vw) + 14px)}
 .leftcol{position:fixed;z-index:5;left:max(14px,env(safe-area-inset-left,0px));bottom:calc(var(--foot) + env(safe-area-inset-bottom,0px) + 14px);display:flex;flex-direction:column;gap:8px;width:min(300px,calc(100vw - 28px));max-height:calc(100vh - var(--top) - var(--foot) - 110px);overflow:auto}
 .leftcol .glass{position:static}
 .legend{padding:2px 14px;font-size:12px}
-.names summary,.legend summary{cursor:pointer;padding:9px 0;font-weight:500;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+.names summary,.legend summary{cursor:pointer;padding:9px 0;font-family:var(--font-display);font-weight:500;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
 .legend h4{margin:8px 0 5px;font-size:11px;color:var(--muted);font-weight:500}
 .legend .k{display:flex;align-items:center;gap:9px;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-mono);font-size:11.5px;color:var(--text)}
 .legend .k i{width:20px;height:2px;border-radius:2px;flex:none}
@@ -130,8 +132,8 @@ body:not(.ninfo-off) .nsex{display:none}
 .ren input{flex:1;min-width:0;padding:4px 8px;border-radius:6px;border:1px solid var(--line);background:var(--deep);font:11.5px var(--font-mono);color:var(--text);outline:none}
 .ren input:focus{border-color:color-mix(in srgb,var(--accent) 60%,transparent)}
 .ren .btn{padding:3px 9px;font-size:11.5px}
-.ren .link{border:0;background:none;padding:0;font-size:11px;color:var(--faint);text-decoration:underline;cursor:pointer;align-self:flex-start}
-.ren .link:hover{color:var(--text)}
+.link{border:0;background:none;padding:0;font-size:11px;color:var(--faint);text-decoration:underline;cursor:pointer;align-self:flex-start}
+.link:hover{color:var(--text)}
 
 /* side panel, docked right */
 .side{position:fixed;z-index:5;right:0;top:var(--top);bottom:calc(var(--foot) + env(safe-area-inset-bottom,0px));width:min(380px,100vw);padding:18px 18px calc(18px + env(safe-area-inset-right,0px) * 0);overflow:auto;display:flex;flex-direction:column;gap:14px;background:var(--surface);border-left:1px solid var(--line);animation:slide .25s cubic-bezier(.4,0,.2,1)}
@@ -178,7 +180,7 @@ body:not(.ninfo-off) .nsex{display:none}
 .status span{overflow:hidden;text-overflow:ellipsis}
 
 .welcome{left:50%;top:50%;transform:translate(-50%,-50%);width:min(560px,calc(100vw - 32px));padding:26px;display:flex;flex-direction:column;gap:12px;background:var(--surface);border-radius:14px}
-.welcome h2{margin:0;font-size:21px;font-weight:600}
+.welcome h2{margin:0;font:600 19px var(--font-display);letter-spacing:.03em}
 .welcome p{margin:0;color:var(--muted)}
 .err{color:var(--danger);font-size:13px}
 .drop{position:fixed;inset:0;z-index:20;display:grid;place-items:center;background:rgba(6,6,10,.85)}

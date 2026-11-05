@@ -118,9 +118,10 @@ function litSet(){
 }
 
 /* ---------------- drawing ---------------- */
-const MONO = '500 11px "JetBrains Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace';
-const MONO_S = '500 10.5px "JetBrains Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace';
-const SUN = '600 13px "JetBrains Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace';
+const MONO = '500 12px "Exo 2", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+const MONO_S = '500 11.5px "Exo 2", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+const SUN = '700 13px Orbitron, "Exo 2", system-ui, sans-serif';
+const COUNT_FONT = fs => `700 ${fs}px Orbitron, "Exo 2", system-ui, sans-serif`;
 const widths = new Map();
 function textW(t, font){ const k = font + "|" + t; let w = widths.get(k); if (w == null) { ctx.font = font; w = ctx.measureText(t).width; widths.set(k, w); if (widths.size > 6000) widths.clear(); } return w; }
 
@@ -221,8 +222,8 @@ function drawCount(n, x, y, r, ink){
   if (!(n > 0)) return;
   const t = String(n);
   let fs = Math.round(Math.min(16, Math.max(7, r * (t.length > 2 ? 0.62 : 0.85))));
-  let font = `700 ${fs}px "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace`;
-  while (fs > 7 && textW(t, font) > r * 2) { fs--; font = `700 ${fs}px "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace`; }
+  let font = COUNT_FONT(fs);
+  while (fs > 7 && textW(t, font) > r * 2) { fs--; font = COUNT_FONT(fs); }
   ctx.font = font; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = ink;
   ctx.fillText(t, x, y + 0.5); ctx.textAlign = "left";
 }
@@ -737,6 +738,8 @@ document.addEventListener("paste", e => {
   if (t.trim().startsWith("<")) { A.userLoaded = true; loadSeq++; try { loadText(t, "pasted XML"); } catch (err) { showErr(err.message); } }
 });
 window.addEventListener("resize", () => { resize(); });
+/* text widths measured before the web fonts arrived are wrong; measure again once they are in */
+document.fonts?.ready.then(() => { widths.clear(); kick(); });
 /* the header wraps to two rows on mid-size screens; everything placed under it follows its real height */
 new ResizeObserver(() => document.documentElement.style.setProperty("--top", $("top").getBoundingClientRect().bottom + "px")).observe($("top"));
 if (innerWidth < 1100) $("legend").open = false;
