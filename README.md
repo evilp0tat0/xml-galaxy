@@ -16,7 +16,7 @@ No build step, no install, no network at runtime (fonts fall back to system font
 ./serve.sh
 ```
 
-Then open <http://localhost:8080/>. Any static file server works. Opening `index.html` straight from disk also works for your own files; only the bundled examples need a server.
+Then open <http://localhost:8080/>. On Windows, double-click `start.bat` instead: it starts the server (with Python or Node.js) and opens the browser; close its window to stop. Any static file server works. Opening `index.html` straight from disk also works for your own files; only the bundled examples need a server.
 
 ## Use it
 
@@ -48,6 +48,7 @@ src/orbits.js       who orbits whom (fixed), ring sizes, and the physics of wher
 src/app.js          canvas drawing, labels, camera, hover, drag, search, side panel
 samples/            S-201 Feature Catalogue 2016 draft (OpenS100), and a made-up S-201 dataset with id links
 serve.sh            local static server
+start.bat           Windows: double-click to start the server and open the browser
 ```
 
 ## Notes
