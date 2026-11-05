@@ -26,8 +26,8 @@ Then open <http://localhost:8080/>. Any static file server works. Opening `index
 |---|---|
 | **Open XML…**, drop a file, or paste XML anywhere | load a file (nothing leaves the browser) |
 | Hover the centre | see the file's header fields (scope, version, date, product, producer …) |
-| Click a body (the centre too) | select it, show its child elements, and follow it with the camera |
-| Click it again | fold its orbits |
+| Click a body (the centre too) | centre it (the camera follows it) |
+| Click it again | show all its child elements, spread out; once more to fold them |
 | Click a dashed circle with a number | spread a folded group (many children of one kind) into a full orbit |
 | Drag a body | pull it off its orbit; its moons come with it; it drifts back when let go |
 | Hover | light up the chain back to the sun, with the kind of each link |
