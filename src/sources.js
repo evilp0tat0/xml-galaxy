@@ -16,7 +16,9 @@ XO.clip = clip;
    A hand-picked high-contrast set goes first. After that each new colour is the candidate furthest
    (in OKLab, a space where distance matches how different colours look) from every colour already used.
    Candidates are kept light enough to read on the near-black background. */
-const SEEDS = ["#ff4d4f","#3b9bff","#2fd67b","#ffd23f","#b67cff","#ff8a1f","#22d3ee","#ff6bcb","#a3e635","#f5f5f5","#c08457","#7f8cff"];
+const SEEDS = ["#ff4d4f","#3b9bff","#2fd67b","#ffd23f","#b67cff","#ff8a1f","#ff6bcb","#a3e635","#f5f5f5","#c08457"];
+/* reserved for id-reference lines; no tag gets it, and generated colours keep away from it */
+const REF_COLOUR = "#22d3ee";
 const PALETTE = SEEDS;
 const toLin = v => (v /= 255) <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
 const toByte = v => Math.round(255 * Math.min(1, Math.max(0, v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055)));
@@ -33,7 +35,8 @@ function labHex(L, a, b){
   if (rgb.some(v => v < -0.002 || v > 1.002)) return null;
   return "#" + rgb.map(v => toByte(v).toString(16).padStart(2, "0")).join("");
 }
-const colourList = [], colourState = { cands:null, minD:null };
+const colourList = [], colourState = { cands:null, minD:null,
+  use(lab){ const { cands, minD } = colourState; for (let i = 0; i < cands.length; i++) { const q = cands[i].lab, d = Math.hypot(q[0] - lab[0], q[1] - lab[1], q[2] - lab[2]); if (d < minD[i]) minD[i] = d; } } };
 function colours(n){
   if (colourList.length >= n) return colourList.slice(0, n);
   if (!colourState.cands) {
@@ -43,9 +46,10 @@ function colours(n){
       if (hex) c.push({ hex, lab:hexLab(hex) });
     }
     colourState.cands = c; colourState.minD = c.map(() => Infinity);
+    colourState.use(hexLab(REF_COLOUR));
   }
   const { cands, minD } = colourState;
-  const use = lab => { for (let i = 0; i < cands.length; i++) { const q = cands[i].lab, d = Math.hypot(q[0] - lab[0], q[1] - lab[1], q[2] - lab[2]); if (d < minD[i]) minD[i] = d; } };
+  const use = colourState.use;
   while (colourList.length < n) {
     let hex;
     if (colourList.length < SEEDS.length) hex = SEEDS[colourList.length];
@@ -111,7 +115,7 @@ function xmlSource(doc, fileName){
   const tags = [...tagCount.keys()].sort((a, b) => tagCount.get(b) - tagCount.get(a));
   const cols = colours(tags.length);
   const palette = new Map(tags.map((t, i) => ["t:" + t, { color:cols[i], tag:t, get title(){ return "<" + dn(t) + ">"; }, count:tagCount.get(t) }]));
-  palette.set("ref", { color:"#22d3ee", title:"Points to (id reference)" });
+  palette.set("ref", { color:REF_COLOUR, title:"Points to (id reference)" });
 
   /* a short human name for an element: its tag plus a telling attribute or child */
   function keyOf(r){
@@ -130,7 +134,7 @@ function xmlSource(doc, fileName){
   const nameRec = R0.kids.find(k => k.el.localName === "name" && !k.kids.length && k.el.textContent.trim());
   const fileTitle = nameRec ? nameRec.el.textContent.trim() : String(fileName || "").split(/[\\/]/).pop() || R0.tag;
   /* labels follow the chosen display names, so they are worked out each time */
-  const labelOf = r => r.depth === 0 ? (names.custom.get(r.tag) || fileTitle) : r.key ? dn(r.tag) + " · " + clip(r.key, 40) : dn(r.tag);
+  const labelOf = r => r.depth === 0 ? fileTitle : r.key ? dn(r.tag) + " · " + clip(r.key, 40) : dn(r.tag);
 
   /* Header: the fields at the top of the file that describe it (name, scope, version, producer …).
      A text-only child of the root is one field; a small child with parts of its own (like producer) lists its text parts.
@@ -138,15 +142,20 @@ function xmlSource(doc, fileName){
      of one tag), a big block, or a tag the root repeats. */
   function header(){
     const seen = new Map(); for (const k of R0.kids) seen.set(k.tag, (seen.get(k.tag) || 0) + 1);
-    const isList = k => k.kids.length > 1 && k.kids.every(c => c.tag === k.kids[0].tag);
-    const keyName = r => names.custom.get(r.tag) || localOf(r.tag);
+    /* a list: several children of one tag, or a plural wrapper of one (DefinitionSources around one DefinitionSource) */
+    const plural = (w, c) => { w = localOf(w).toLowerCase(); c = localOf(c).toLowerCase(); return w.endsWith(c + "s") || w.endsWith(c + "es") || (c.endsWith("y") && w.endsWith(c.slice(0, -1) + "ies")); };
+    const isList = k => k.kids.length > 0 && k.kids.every(c => c.tag === k.kids[0].tag) && (k.kids.length > 1 || (k.kids[0].kids.length > 0 && plural(k.tag, k.kids[0].tag)));
+    /* field names follow the display style, without the namespace prefix (scope, not S100FC:scope) */
+    const keyName = r => names.custom.get(r.tag) || (names.style === "full" ? localOf(r.tag) : styledName(r.tag, names.style));
+    /* an element's value: its text, or else its attributes */
+    const valueOf = el => el.textContent.trim() || [...el.attributes].filter(a => !/^xmlns(:|$)/.test(a.name)).map(a => a.name + "=" + a.value).join(" ");
     const out = [];
     for (const k of R0.kids) {
       if (k === nameRec) continue;
       if (seen.get(k.tag) > 1 || k.desc > 24 || isList(k)) break;
-      if (!k.kids.length) { const v = k.el.textContent.trim(); if (v) out.push({ key:keyName(k), value:v }); continue; }
+      if (!k.kids.length) { const v = valueOf(k.el); if (v) out.push({ key:keyName(k), value:v }); continue; }
       const items = [], st = [...k.kids].reverse();
-      while (st.length) { const x = st.pop(); if (x.kids.length) { for (let i = x.kids.length - 1; i >= 0; i--) st.push(x.kids[i]); continue; } const v = x.el.textContent.trim(); if (v) items.push({ key:keyName(x), value:v }); }
+      while (st.length) { const x = st.pop(); if (x.kids.length) { for (let i = x.kids.length - 1; i >= 0; i--) st.push(x.kids[i]); continue; } const v = valueOf(x.el); if (v) items.push({ key:keyName(x), value:v }); }
       if (items.length) out.push({ key:keyName(k), items });
     }
     return out;
@@ -235,15 +244,13 @@ function catalogueSource(FC, startKey, fileName){
   const vals = new Map(), missing = new Map();
   const nid = e => e.val ? "v:" + e.attr.code + ":" + e.val.code : e.item.missing ? "x:" + e.item.code : F.keyOf(e.item);
   const root = FC.by.get(startKey);
-  const kidCount = new Map();
-  const kidsOf = it => { let n = kidCount.get(it); if (n == null) { n = F.branches(it).reduce((s, g) => s + g.entries.length, 0); kidCount.set(it, n); } return n; };
   return {
     mode:"links", fileName, palette, total:FC.items.length, rootId:startKey, FC,
     title:root.name || root.code,
     has: x => FC.by.has(x) || vals.has(x) || missing.has(x),
     node(x){
       const it = FC.by.get(x);
-      if (it) return { id:x, label:it.name || it.code, color:"k:" + it.kind, size:x === startKey ? 28 : PLANET[it.kind], kind:F.KIND[it.kind].one, abstract:it.abstract, kids:kidsOf(it) };
+      if (it) return { id:x, label:it.name || it.code, color:"k:" + it.kind, size:x === startKey ? 28 : PLANET[it.kind], kind:F.KIND[it.kind].one, abstract:it.abstract };
       const v = vals.get(x); if (v) return { id:x, label:v.val.code + " · " + (v.val.label || ""), color:"c:val", size:5, kind:"Allowed value" };
       const m = missing.get(x); if (m) return { id:x, label:m + " (not defined)", color:"miss", size:7, kind:"Missing" };
       return null;
