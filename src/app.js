@@ -38,19 +38,40 @@ function setDPR(d){
 }
 /* Most of a frame's cost is the browser filling and copying the canvas's pixels, not our JS, so on a machine
    too slow for the full-resolution canvas, render fewer pixels while things move (2x → 1.5x → 1x) and bring
-   the sharp picture back when it is still, or when frames are quick again. */
-let slowFrames = 0, fastFrames = 0, upAfter = 90, sinceUp = 1e9;
+   the sharp picture back when it is still, or when frames are quick again.
+   Every step down is checked: if fewer pixels did not make frames clearly quicker (a browser capped at 30 fps in
+   power-saving mode, or a machine slowed by something else), the sharp canvas comes back, and each later try
+   waits longer. */
+let slowFrames = 0, fastFrames = 0, upAfter = 90, sinceUp = 1e9, failedUps = 0, check = null, waitDown = 0, downAfter = 4000;
+const recent = [];
+/* medians, so one stray hitch (a garbage collection, a file loading) does not decide anything */
+const median = a => { const b = [...a].sort((p, q) => p - q); return b.length ? b[b.length >> 1] : 0; };
 function adaptDPR(gap){
-  sinceUp++;
+  sinceUp++; if (waitDown > 0) waitDown -= gap;
+  recent.push(gap); if (recent.length > 10) recent.shift();
+  /* judge a step down on the 20 frames after it, leaving out the first few while the canvas is remade */
+  if (check) {
+    if (++check.n > 4) check.gaps.push(gap);
+    if (check.gaps.length >= 20) {
+      if (median(check.gaps) > check.before * 0.92) { setDPR(check.from); waitDown = downAfter; downAfter = Math.min(downAfter * 2, 60000); }
+      check = null;
+    }
+  }
   if (gap > 28) {
     fastFrames = 0;
-    if (++slowFrames >= 5 && DPR > 1) { if (sinceUp < 90) upAfter = Math.min(upAfter * 2, 3600); setDPR(Math.max(1, DPR - 0.5)); slowFrames = 0; }
+    if (++slowFrames >= 5 && DPR > 1 && !check && waitDown <= 0) {
+      /* coming down again soon after a step up means the step up failed; after two, stop trying for this run */
+      if (sinceUp < 1800) { upAfter = Math.min(upAfter * 2, 3600); if (++failedUps >= 2) upAfter = Infinity; }
+      check = { from:DPR, before:median(recent.filter(g => g > 28)), n:0, gaps:[] };
+      setDPR(Math.max(1, DPR - 0.5)); slowFrames = 0;
+    }
   } else {
     slowFrames = Math.max(0, slowFrames - 1);
-    fastFrames = gap < 20 ? fastFrames + 1 : 0;
-    if (fastFrames >= upAfter && DPR < maxDPR) { setDPR(Math.min(maxDPR, DPR + 0.5)); fastFrames = 0; sinceUp = 0; }
+    fastFrames = gap < 22 ? fastFrames + 1 : 0;
+    if (fastFrames >= upAfter && DPR < maxDPR && !check) { setDPR(Math.min(maxDPR, DPR + 0.5)); fastFrames = 0; sinceUp = 0; }
   }
 }
+function resetAdapt(){ recent.length = 0; slowFrames = fastFrames = failedUps = 0; upAfter = 90; sinceUp = 1e9; check = null; waitDown = 0; downAfter = 4000; }
 /* the free part of the screen: below the top bar, left of the side panel */
 function freeArea(){
   const tabs = $("modes"), top = (tabs.hidden ? $("top") : tabs).getBoundingClientRect().bottom + 8;
@@ -75,7 +96,7 @@ function frame(now){
   draw();
   if (!A.ptr && A.mx != null && (camMoving || moving || spin)) { const h = hit(A.mx, A.my, A.mslop); if ((h?.id ?? null) !== A.hover) setHover(h); else if (h && !$("tip").hidden) placeTip(h); }
   if (spin || moving || camMoving || A.ptr?.dragging || A.pulse) raf = requestAnimationFrame(frame);
-  else { last = 0; slowFrames = fastFrames = 0; upAfter = 90; if (DPR < maxDPR) { setDPR(maxDPR); draw(); } }
+  else { last = 0; resetAdapt(); if (DPR < maxDPR) { setDPR(maxDPR); draw(); } }
 }
 function cameraStep(){
   const c = A.cam, f = REDUCED ? 1 : 0.13;
@@ -187,10 +208,20 @@ function strokeQuad(ax, ay, cx, cy, bx, by, dashed){
         const t = t0 * (j + 0.5 + s / 2) / 4, u = 1 - t;
         len += w * Math.hypot(u * (cx - ax) + t * (bx - cx), u * (cy - ay) + t * (by - cy));
       }
-      ctx.lineDashOffset = len * t0 / 4;
+      /* kept small: the canvas holds the offset as a 32-bit float, too coarse for the lengths seen at deep zoom */
+      const per = ctx.getLineDash().reduce((p, q) => p + q, 0);
+      ctx.lineDashOffset = per ? (len * t0 / 4) % per : 0;
     }
   }
   ctx.stroke(); ctx.lineDashOffset = 0;
+}
+/* Part of a circle. A very thin slice of a huge circle (deep zoom) is drawn as curves worked out here in full
+   precision: the canvas's own arc() draws nothing at all once the slice is under about 1/3000 of a radian. */
+function arcPath(x, y, r, a0, a1){
+  if (a1 - a0 >= 0.01) { ctx.arc(x, y, r, a0, a1); return; }
+  const m = (a0 + a1) / 2, kk = r / Math.cos((a1 - a0) / 2);
+  ctx.moveTo(x + r * Math.cos(a0), y + r * Math.sin(a0));
+  ctx.quadraticCurveTo(x + kk * Math.cos(m), y + kk * Math.sin(m), x + r * Math.cos(a1), y + r * Math.sin(a1));
 }
 /* the arcs of a circle that cross the padded screen, as [from, to] angles within 0..2π; null when all of it is on screen */
 function arcSpans(x, y, r){
@@ -228,7 +259,7 @@ function draw(){
     ctx.globalAlpha = lit ? (on ? 0.55 : 0.04) : (b.depth === 0 ? 0.16 : 0.12);
     ctx.strokeStyle = colour(ring.color); ctx.lineWidth = on ? 1.3 : 0.8;
     ctx.setLineDash(ring.grp.folded ? [3, 4] : []);
-    if (spans && ring.grp.folded) for (const [a0, a1] of spans) { ctx.lineDashOffset = rr * a0; ctx.beginPath(); ctx.arc(x, y, rr, a0, a1); ctx.stroke(); }
+    if (spans && ring.grp.folded) for (const [a0, a1] of spans) { ctx.lineDashOffset = (rr * a0) % 7; ctx.beginPath(); arcPath(x, y, rr, a0, a1); ctx.stroke(); }
     else { ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.stroke(); }
     ctx.lineDashOffset = 0;
   }
