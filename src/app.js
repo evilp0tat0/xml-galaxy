@@ -37,7 +37,7 @@ function freeArea(){
   const side = $("side"), sr = side.hidden ? null : side.getBoundingClientRect();
   const right = sr && W > 760 ? sr.left - 56 : W - 56;
   const bottom = sr && W <= 760 ? sr.top - 8 : $("foot").getBoundingClientRect().top - 8;
-  const lc = $("leftcol"), left = ($("legend").open || $("namesBox").open) && W > 1100 ? Math.min(lc.getBoundingClientRect().right + 8, W * 0.3) : 8;
+  const lc = $("leftcol"), left = ($("legend").open || $("namesBox").open) && W > 760 ? Math.min(lc.getBoundingClientRect().right + 8, W * 0.4) : 8;
   return { x0:left, y0:top, x1:right, y1:Math.max(top + 80, bottom) };
 }
 
@@ -95,7 +95,7 @@ function followBody(b, zoomToSystem){
   if (zoomToSystem) {
     const fa = freeArea();
     /* a body with no orbits of its own: show it with its neighbourhood, not filling the screen */
-    const R = b.sysR ? (b.sysR + b.size) * 1.15 + 6 : b.size * 12;
+    const R = b.sysR ? (b.sysR + b.size) * 1.15 + b.size * 0.5 : b.size * 12;
     A.followK = Math.max(0.05, Math.min(1e5, Math.min(fa.x1 - fa.x0, fa.y1 - fa.y0) / (2 * R)));
   }
   kick();
@@ -175,7 +175,8 @@ function draw(){
   for (const g of O.ghosts) { const x = X(g), y = Y(g), r = g.size * k * g.life; if (r < 0.3 || !onScreen(x, y, r)) continue; ctx.globalAlpha = Math.max(0, g.life) * 0.6 * (lit ? 0.2 : 1); ctx.fillStyle = colour(g.color); ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); }
   /* bodies */
   for (const b of O.order) {
-    const x = X(b), y = Y(b), r = Math.max(b.size * k * bodyScale(b, lit), 1.2);
+    const n = b.type === "group" ? b.count : b.kids || 0;
+    const x = X(b), y = Y(b), r = Math.max(b.size * k * bodyScale(b, lit), n > 0 ? countR(n) : 1.2);
     if (!onScreen(x, y, r * 3)) continue;
     const on = !lit || lit.nodes.has(b.id), col = colour(b.color);
     if (b.depth === 0 || b.id === A.sel || (lit && b.id === lit.d.id)) {
@@ -187,18 +188,12 @@ function draw(){
     if (b.type === "group") {
       ctx.fillStyle = "#101018"; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
       ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.setLineDash([3, 2.5]); ctx.stroke(); ctx.setLineDash([]);
+      drawCount(n, x, y, r, "#f5f5f7");
     } else {
       ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
       if (b.abstract) { ctx.fillStyle = "#06060a"; ctx.beginPath(); ctx.arc(x, y, r * 0.55, 0, 7); ctx.fill(); }
-      /* how many direct child elements it has; nothing when it has none, or when the circle is too small to read */
-      if (b.kids > 0 && r >= 4) {
-        const t = String(b.kids), fs = Math.round(Math.min(16, Math.max(7, r * (t.length > 2 ? 0.62 : 0.85)))), font = `700 ${fs}px "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace`;
-        if (textW(t, font) <= r * 1.9) {
-          ctx.font = font; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-          ctx.fillStyle = b.abstract ? "#f5f5f7" : XO.sources.inkFor(col); ctx.fillText(t, x, y + 0.5);
-          ctx.textAlign = "left";
-        }
-      }
+      /* how many direct child elements it has; nothing when it has none */
+      drawCount(n, x, y, r, b.abstract ? "#f5f5f7" : XO.sources.inkFor(col));
     }
     if (b.isOpen && b.depth > 0 && r > 2) { ctx.globalAlpha = on ? 0.6 : 0.15; ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(x, y, r + 3.5, 0, 7); ctx.stroke(); }
     if (b.id === A.hover || b.id === A.sel) { ctx.globalAlpha = b.id === A.sel ? 0.9 : 0.5; ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 4, 0, 7); ctx.stroke(); }
@@ -220,6 +215,17 @@ function draw(){
   $("zoomPct").textContent = A.src ? `zoom ${Math.round(c.k * 100)}%` : "";
 }
 const S = (b) => [A.cam.x + A.cam.k * b.x, A.cam.y + A.cam.k * b.y];
+/* the smallest on-screen radius that still holds a number of this many digits */
+const countR = n => Math.max(5.5, String(n).length * 2.4 + 1.5);
+function drawCount(n, x, y, r, ink){
+  if (!(n > 0)) return;
+  const t = String(n);
+  let fs = Math.round(Math.min(16, Math.max(7, r * (t.length > 2 ? 0.62 : 0.85))));
+  let font = `700 ${fs}px "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace`;
+  while (fs > 7 && textW(t, font) > r * 2) { fs--; font = `700 ${fs}px "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace`; }
+  ctx.font = font; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = ink;
+  ctx.fillText(t, x, y + 0.5); ctx.textAlign = "left";
+}
 
 /* Labels are placed most important first; one that would overlap a placed label tries other sides, then is skipped. */
 function drawLabels(lit){
@@ -227,7 +233,7 @@ function drawLabels(lit){
   const free = r => { if (r.x < -50 || r.y < -20 || r.x > W + 50 || r.y > H + 20) return false; for (const p of placed) if (r.x < p.x + p.w && r.x + r.w > p.x && r.y < p.y + p.h && r.y + r.h > p.y) return false; return true; };
   const pill = (x, y, w, h, stroke, lw = 1) => { ctx.fillStyle = "#12121c"; ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.beginPath(); ctx.roundRect(x, y, w, h, 4); ctx.fill(); ctx.stroke(); };
   /* bodies' circles block labels too, so names never sit on top of a planet */
-  for (const b of O.order) { const [x, y] = S(b), r = b.size * k * bodyScale(b, lit); if (r > 3) placed.push({ x:x - r, y:y - r, w:2 * r, h:2 * r }); }
+  for (const b of O.order) { const [x, y] = S(b), n = b.type === "group" ? b.count : b.kids || 0, r = Math.max(b.size * k * bodyScale(b, lit), n > 0 ? countR(n) : 0); if (r > 3) placed.push({ x:x - r, y:y - r, w:2 * r, h:2 * r }); }
   const cands = [];
   for (const b of O.order) {
     const on = lit?.nodes.has(b.id);
@@ -241,7 +247,8 @@ function drawLabels(lit){
   /* the sun's name sits under it */
   ctx.textBaseline = "middle";
   for (const [, b] of cands) {
-    const [x, y] = S(b), r = b.size * k * bodyScale(b, lit), hot = lit?.nodes.has(b.id), main = lit && b.id === lit.d.id;
+    const cn = b.type === "group" ? b.count : b.kids || 0;
+    const [x, y] = S(b), r = Math.max(b.size * k * bodyScale(b, lit), cn > 0 ? countR(cn) : 0), hot = lit?.nodes.has(b.id), main = lit && b.id === lit.d.id;
     if (b.depth === 0) {
       const t = clip(b.label, 40), w = textW(t, SUN) + 18, h = 24;
       const rect = { x:x - w / 2, y:y + r + 8, w, h };
@@ -297,7 +304,8 @@ function hit(sx, sy, slop = 4){
   const O = A.O; if (!O) return null;
   let best = null, bd = Infinity;
   for (const b of O.order) {
-    const [x, y] = S(b), r = Math.max(b.size * A.cam.k, 6) + slop, d = Math.hypot(x - sx, y - sy);
+    const n = b.type === "group" ? b.count : b.kids || 0;
+    const [x, y] = S(b), r = Math.max(b.size * A.cam.k, 6, n > 0 ? countR(n) : 0) + slop, d = Math.hypot(x - sx, y - sy);
     if (d < r && d < bd) { best = b; bd = d; }
   }
   return best;
@@ -390,9 +398,9 @@ function chainText(b){
 function hopText(x, n){ return A.src.mode === "links" ? clip(x.via?.label || x.ring?.grp.title || "", n) : (x.type === "group" ? x.label : x.kind || ""); }
 const hopColour = x => A.src.mode === "links" ? colour(x.ring?.color) : colour(x.color);
 const canToggle = b => b.type !== "group" && A.src.canOpen(b.id) && (!!b.parent || A.src.mode === "tree");
-function headerHtml(h, max = 14){
+function headerHtml(h, max = 12, per = 8){
   if (!h?.length) return "";
-  const rows = h.slice(0, max).map(f => `<dt${f.items ? ' class="grp"' : ""}>${esc(f.key)}</dt><dd${f.items ? ' class="grp"' : ""}>${f.items ? f.items.slice(0, 10).map(i => `<div><span class="s">${esc(i.key)}:</span> ${esc(clip(i.value, 120))}</div>`).join("") + (f.items.length > 10 ? `<div class="s">… ${f.items.length - 10} more</div>` : "") : esc(clip(f.value, 160))}</dd>`).join("");
+  const rows = h.slice(0, max).map(f => `<dt${f.items ? ' class="grp"' : ""}>${esc(f.key)}</dt><dd${f.items ? ' class="grp"' : ""}>${f.items ? f.items.slice(0, per).map(i => `<div><span class="s">${esc(i.key)}:</span> ${esc(clip(i.value, 120))}</div>`).join("") + (f.items.length > per ? `<div class="s">… ${f.items.length - per} more</div>` : "") : esc(clip(f.value, 160))}</dd>`).join("");
   return `<dl class="hdr">${rows}</dl>` + (h.length > max ? `<div class="c">… and ${h.length - max} more fields</div>` : "");
 }
 function tipHtml(b){
@@ -459,7 +467,7 @@ function renderSide(b){
   parts.push(`<h2>${esc(b.type === "group" ? `${b.count} × ${b.label}` : info?.title || b.label)}</h2>`);
   if (info?.code) parts.push(`<div class="code">${esc(info.code)}</div>`);
   if (b.parent) parts.push(`<div class="box"><h3>Where it comes from</h3><div class="chain">${chainHtml}</div></div>`);
-  if (info?.header?.length) parts.push(`<div class="box"><h3>About this file</h3>${headerHtml(info.header, 40)}</div>`);
+  if (info?.header?.length) parts.push(`<div class="box"><h3>About this file</h3>${headerHtml(info.header, 60, 40)}</div>`);
   if (info?.def) parts.push(`<p>${esc(info.def)}</p>`);
   if (info?.facts?.length) parts.push(`<div class="tags">${info.facts.map(f => `<span class="tag">${esc(f)}</span>`).join("")}</div>`);
   if (info?.attrs?.length) parts.push(`<div><h3>Attributes</h3><dl class="attrs">${info.attrs.slice(0, 40).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(clip(v, 200))}</dd>`).join("")}</dl></div>`);
@@ -469,10 +477,10 @@ function renderSide(b){
   if (info?.broken?.length) parts.push(`<div><h3>Broken references</h3><div class="list">${info.broken.slice(0, 20).map(t => `<div class="it" style="color:var(--danger)">${esc(t)}</div>`).join("")}</div></div>`);
   if (info?.linksIn?.length) parts.push(`<div><h3>Pointed at by</h3><div class="list">${info.linksIn.slice(0, 30).map(o => linkRow(o.id, o.text, o.color)).join("")}</div></div>`);
   if (cross.length && A.src.mode === "links") parts.push(`<div><h3>Also linked (dashed lines)</h3><div class="list">${cross.slice(0, 20).map(l => { const o = l.a === b ? l.b : l.a; return linkRow(o.id, (A.src.palette.get(l.color)?.title || "") + ": " + o.label, l.color); }).join("")}</div></div>`);
+  if (info?.tag && A.src.mode === "tree") parts.push(`<div class="box ren"><h3>Display name</h3>${renameForm(info.tag, "renameSide")}</div>`);
   const acts = [];
   if (b.type === "group") acts.push(`<button class="btn primary" type="button" data-act="spread">Spread into a full orbit</button>`);
   else if (canToggle(b)) acts.push(`<button class="btn primary" type="button" data-act="toggle">${b.isOpen ? "Fold its child elements" : "Show its child elements"}</button>`);
-  if (info?.tag) acts.push(`<button class="btn" type="button" data-act="rename">Rename</button>`);
   acts.push(`<button class="btn" type="button" data-act="close">Close</button>`);
   parts.push(`<div class="acts">${acts.join("")}</div>`);
   side.innerHTML = parts.join(""); side.hidden = false; side.dataset.id = b.id;
@@ -483,7 +491,6 @@ $("side").addEventListener("click", e => {
   if (t.dataset.sel) { const n = A.O.bodies.get(t.dataset.sel); if (n) { select(n); followBody(n, false); canvas.focus({ preventScroll:true }); } }
   else if (t.dataset.find) reveal(t.dataset.find);
   else if (t.dataset.act === "close") select(null);
-  else if (t.dataset.act === "rename") { $("namesBox").open = true; renderRename(); $("renameIn")?.focus(); }
   else if (b && (t.dataset.act === "toggle" || t.dataset.act === "spread")) clickBody(b);
 });
 
@@ -592,7 +599,7 @@ function renderLegend(){
     const tags = [...src.palette].filter(([k]) => k.startsWith("t:"));
     for (const [, v] of tags.slice(0, 16)) out.push(`<div class="k"><b style="background:${v.color};color:${v.color}"></b>${esc(v.title)}<em>${v.count}</em></div>`);
     if (tags.length > 16) out.push(`<div class="k" style="color:var(--faint)">… and ${tags.length - 16} more tags</div>`);
-    out.push(`<div class="k"><i style="background:repeating-linear-gradient(90deg,#e2e8f0 0 5px,transparent 5px 9px)"></i>id reference (ref, href, idref…)</div>`);
+    out.push(`<div class="k"><i style="background:repeating-linear-gradient(90deg,${colour("ref")} 0 5px,transparent 5px 9px)"></i>id reference (ref, href, idref…)</div>`);
   }
   out.push(`<p>Click a body to open its own orbits; click again to fold them. A dashed circle with a number is a folded group: click it to spread it out. Drag a body to pull it about; it drifts back to its orbit. Hover to light up the chain back to the centre.</p>`);
   $("legendBody").innerHTML = out.join("");
@@ -621,20 +628,21 @@ function renderNames(){
   for (const [id, st] of [["nsFull", "full"], ["nsShorter", "shorter"], ["nsShortest", "shortest"]]) { const el = $(id); el.textContent = N.styled(t, st); el.title = N.styled(t, st); }
   renderRename();
 }
+function selectedTag(){
+  const b = A.sel && A.O?.bodies.get(A.sel);
+  return b && b.type !== "group" && A.src?.mode === "tree" ? A.src.tagOf(b.id) : "";
+}
+function renameForm(tag, inputId){
+  const N = XO.names, n = A.src.palette.get("t:" + tag)?.count || 1, cur = N.custom.get(tag) || "";
+  const isRoot = A.doc && tag === A.doc.documentElement.nodeName;
+  return `<code>&lt;${esc(tag)}&gt;</code>
+    <div class="row"><input id="${inputId}" data-tag="${esc(tag)}" type="text" value="${esc(cur)}" placeholder="${esc(N.styled(tag, N.style))}" aria-label="New display name for ${esc(tag)}" autocomplete="off"><button class="btn primary" type="button" data-nact="save">Save</button>${cur ? `<button class="btn" type="button" data-nact="reset">Reset</button>` : ""}</div>
+    <p>Shown for every &lt;${esc(tag)}&gt; element${n > 1 ? ` (${n.toLocaleString()} in this file)` : ""}. Leave empty to use the style.${isRoot ? " The centre circle keeps the file's own name." : ""}</p>`;
+}
 function renderRename(){
-  const box = $("renameArea"), N = XO.names;
-  const b = A.sel && A.O?.bodies.get(A.sel), tag = b && b.type !== "group" && A.src?.mode === "tree" ? A.src.tagOf(b.id) : "";
-  const reset = N.custom.size ? `<button class="btn" type="button" data-nact="resetAll">Reset all custom names (${N.custom.size})</button>` : "";
-  if (!tag) {
-    box.innerHTML = `<h4>Rename one element</h4><p>${A.src?.mode === "tree" ? "Click an element on the map, then type its new name here." : "Renaming works in the XML tree view."}</p>${reset}`;
-    return;
-  }
-  const n = A.src.palette.get("t:" + tag)?.count || 1, cur = N.custom.get(tag) || "";
-  box.innerHTML = `<h4>Rename one element</h4><code>&lt;${esc(tag)}&gt;</code>
-    <div class="row"><input id="renameIn" type="text" value="${esc(cur)}" placeholder="${esc(N.styled(tag, N.style))}" aria-label="New display name" autocomplete="off"><button class="btn primary" type="button" data-nact="save">Save</button></div>
-    <p>Shown for every &lt;${esc(tag)}&gt; element${n > 1 ? ` (${n.toLocaleString()} in this file)` : ""}. Leave empty to use the style.</p>
-    <div class="row">${cur ? `<button class="btn" type="button" data-nact="reset">Reset this name</button>` : ""}${reset}</div>`;
-  box.dataset.tag = tag;
+  const box = $("renameArea"), N = XO.names, tag = selectedTag();
+  const reset = N.custom.size ? `<div class="row"><button class="btn" type="button" data-nact="resetAll">Reset all custom names (${N.custom.size})</button></div>` : "";
+  box.innerHTML = `<h4>Rename one element</h4>` + (tag ? renameForm(tag, "renameIn") : `<p>${A.src?.mode === "tree" ? "Click an element on the map, then type its new name here." : "Renaming works in the XML tree view."}</p>`) + reset;
 }
 function applyNames(){
   saveNames();
@@ -647,15 +655,22 @@ function applyNames(){
   kick();
 }
 $("nameStyles").addEventListener("change", e => { if (e.target.name === "nstyle") { XO.names.style = e.target.value; applyNames(); } });
-$("renameArea").addEventListener("click", e => {
+/* the rename form lives in the Display names box and in the side panel; both work the same */
+function onRename(e){
   const t = e.target.closest("button[data-nact]"); if (!t) return;
-  const tag = $("renameArea").dataset.tag, N = XO.names;
-  if (t.dataset.nact === "save" && tag) { const v = $("renameIn").value.trim(); if (v) N.custom.set(tag, v); else N.custom.delete(tag); }
+  e.stopPropagation();
+  const box = t.closest(".ren, .box") || e.currentTarget, inp = box.querySelector("input[data-tag]"), tag = inp?.dataset.tag, N = XO.names;
+  if (t.dataset.nact === "save" && tag) { const v = inp.value.trim(); if (v) N.custom.set(tag, v); else N.custom.delete(tag); }
   else if (t.dataset.nact === "reset" && tag) N.custom.delete(tag);
   else if (t.dataset.nact === "resetAll") N.custom.clear();
+  else return;
+  /* the form is drawn again; put the cursor back where it was */
+  const back = inp && document.activeElement === inp ? inp.id : t.dataset.nact === "save" && inp ? inp.id : null;
   applyNames();
-});
-$("renameArea").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.id === "renameIn") { e.preventDefault(); $("renameArea").querySelector('button[data-nact="save"]').click(); } });
+  if (back) $(back)?.focus();
+}
+function onRenameKey(e){ if (e.key === "Enter" && e.target.matches("input[data-tag]")) { e.preventDefault(); e.target.parentElement.querySelector('button[data-nact="save"]').click(); } }
+for (const id of ["renameArea", "side"]) { $(id).addEventListener("click", onRename, true); $(id).addEventListener("keydown", onRenameKey); }
 
 /* ---------------- controls ---------------- */
 const ICON_PAUSE = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
@@ -691,6 +706,8 @@ document.addEventListener("paste", e => {
   if (t.trim().startsWith("<")) { A.userLoaded = true; loadSeq++; try { loadText(t, "pasted XML"); } catch (err) { showErr(err.message); } }
 });
 window.addEventListener("resize", () => { resize(); });
+/* the header wraps to two rows on mid-size screens; everything placed under it follows its real height */
+new ResizeObserver(() => document.documentElement.style.setProperty("--top", $("top").getBoundingClientRect().bottom + "px")).observe($("top"));
 if (innerWidth < 1100) $("legend").open = false;
 renderNames();
 resize();
