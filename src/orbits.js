@@ -1,8 +1,9 @@
 /* The orbit engine. Who orbits whom is fixed by the source and never changes;
    where a body is right now is physics: it springs toward its spot on its parent's orbit,
    can be dragged away, and drifts back when let go. Its moons follow it wherever it goes.
-   Each level down is drawn at half the scale of the one above, so deep files stay a bounded size:
-   zoom in (or select a body) to read its moons. */
+   In the catalogue view each level down is drawn at half the scale of the one above, so deep files stay
+   a bounded size: zoom in (or select a body) to read its moons. In the XML tree view bodies keep their own
+   size at every depth (sources set flatSize), and orbits still clear each body's whole system. */
 (function(){
 "use strict";
 const XO = window.XO;
@@ -65,14 +66,14 @@ class Orbits {
       for (const { g, fresh, gid, fold } of plan) {
         const members = [];
         if (fold) {
-          const gb = mk(gid, { type:"group", label:g.title, color:g.color, size:(n.depth ? 11 : 14) * u, count:fresh.length, ids:new Set(fresh.map(f => f.id)) },
+          const gb = mk(gid, { type:"group", label:g.title, color:g.color, size:src.flatSize ? 10 : (n.depth ? 11 : 14) * u, count:fresh.length, ids:new Set(fresh.map(f => f.id)) },
             { depth:n.depth + 1, parent:n, via:{ color:g.color, short:"", label:g.title } });
           for (const f of fresh) claimed.set(f.id, gb);
           members.push(gb);
           links.push({ id:"s|" + gid, a:n, b:gb, color:g.color, kind:"spoke" });
         } else for (const e of fresh) {
           const nd = src.node(e.id); if (!nd) continue;
-          const b = mk(e.id, nd, { type:"body", depth:n.depth + 1, parent:n, size:Math.max(1.2 * u, nd.size * u * (n.depth === 0 ? 1 : 0.85)), via:{ color:g.color, short:e.short, label:e.label, inh:e.inherited } });
+          const b = mk(e.id, nd, { type:"body", depth:n.depth + 1, parent:n, size:src.flatSize ? nd.size : Math.max(1.2 * u, nd.size * u * (n.depth === 0 ? 1 : 0.85)), via:{ color:g.color, short:e.short, label:e.label, inh:e.inherited } });
           members.push(b); q.push(b);
           links.push({ id:"s|" + e.id, a:n, b, color:g.color, short:e.short, label:e.label, inh:e.inherited, kind:"spoke" });
         }
