@@ -18,7 +18,9 @@ No build step, no install, no network at runtime (fonts fall back to system font
 ./serve.sh
 ```
 
-Then open <http://localhost:8080/>. Any static file server works. Opening `index.html` straight from disk also works for your own files; only the bundled examples need a server.
+Then open <http://localhost:8080/>.
+
+On Windows, double-click **`start.bat`**. It starts a small local server with the PowerShell that comes with Windows (nothing to install) and opens the app in your browser. Keep its window open while you use the app; close it to stop. If the server cannot start, it opens `index.html` straight from disk instead. Any static file server works. Opening `index.html` straight from disk also works for your own files; only the bundled examples need a server.
 
 ## Use it
 
@@ -51,7 +53,9 @@ src/sources.js      turns a document into bodies and orbits: plain XML tree, or 
 src/orbits.js       who orbits whom (fixed), ring sizes, and the physics of where bodies are right now
 src/app.js          canvas drawing, labels, camera, hover, drag, search, side panel
 samples/            S-201 Feature Catalogue 2016 draft (OpenS100), and a made-up S-201 dataset with id links
-serve.sh            local static server
+serve.sh            local static server (macOS, Linux)
+start.bat           double-click on Windows: runs serve.ps1 and opens the app
+serve.ps1           local static server in PowerShell (used by start.bat)
 ```
 
 ## Notes
