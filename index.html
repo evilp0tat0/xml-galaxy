@@ -73,6 +73,12 @@ select.btn option{background:var(--surface);color:var(--text)}
 .tabs button:hover{background:var(--hover);color:var(--text)}
 .tabs button[aria-pressed="true"]{background:var(--accent);color:#fff}
 .tabs svg{width:14px;height:14px}
+body:has(#rootLine:not([hidden])) .tabs{top:calc(var(--hdr) + env(safe-area-inset-top,0px) + 44px)}
+
+/* the file's root element, small but clear, at the top of the map */
+.rootline{position:fixed;z-index:5;top:calc(var(--hdr) + env(safe-area-inset-top,0px) + 9px);left:50%;transform:translateX(-50%);max-width:calc(100vw - 32px);display:flex;align-items:center;gap:8px;padding:4px 11px;border-radius:7px;border:1px solid var(--line);background:color-mix(in srgb,var(--elevated) 92%,transparent);backdrop-filter:blur(8px);white-space:nowrap;overflow:hidden}
+.rootline span{flex:none;color:var(--muted);font-size:10px;font-weight:500;letter-spacing:.08em;text-transform:uppercase}
+.rootline code{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text);font:500 12px var(--font-mono)}
 
 /* zoom and play controls, bottom-right of the graph */
 .ctrls{position:fixed;z-index:5;bottom:calc(var(--foot) + env(safe-area-inset-bottom,0px) + 14px);right:max(14px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:4px}
@@ -84,14 +90,32 @@ select.btn option{background:var(--surface);color:var(--text)}
 body:has(.side:not([hidden])) .ctrls{right:calc(min(380px,100vw) + 14px)}
 
 /* colour key */
-.legend{left:max(14px,env(safe-area-inset-left,0px));bottom:calc(var(--foot) + env(safe-area-inset-bottom,0px) + 14px);padding:2px 14px;font-size:12px;max-width:min(300px,calc(100vw - 28px));max-height:calc(100vh - var(--hdr) - var(--foot) - 90px);overflow:auto}
-.legend summary{cursor:pointer;padding:9px 0;font-weight:500;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+.leftcol{position:fixed;z-index:5;left:max(14px,env(safe-area-inset-left,0px));bottom:calc(var(--foot) + env(safe-area-inset-bottom,0px) + 14px);display:flex;flex-direction:column;gap:8px;width:min(300px,calc(100vw - 28px));max-height:calc(100vh - var(--hdr) - var(--foot) - 90px);overflow:auto}
+.leftcol .glass{position:static}
+.legend{padding:2px 14px;font-size:12px}
+.names summary,.legend summary{cursor:pointer;padding:9px 0;font-weight:500;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
 .legend h4{margin:8px 0 5px;font-size:11px;color:var(--muted);font-weight:500}
 .legend .k{display:flex;align-items:center;gap:9px;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-mono);font-size:11.5px;color:var(--text)}
 .legend .k i{width:20px;height:2px;border-radius:2px;flex:none}
 .legend .k b{width:9px;height:9px;border-radius:50%;flex:none}
 .legend .k em{font-style:normal;color:var(--faint);margin-left:auto;font-size:10.5px}
 .legend p{margin:8px 0 12px;color:var(--muted);font-size:11.5px;white-space:normal;line-height:1.5}
+.names{padding:2px 14px;font-size:12px}
+.names fieldset{border:0;margin:0 0 8px;padding:0;display:flex;flex-direction:column;gap:2px}
+.names legend,.names h4{margin:4px 0 5px;padding:0;font-size:11px;color:var(--muted);font-weight:500}
+.names label.opt{display:grid;grid-template-columns:auto 62px minmax(0,1fr);align-items:center;gap:8px;padding:4px 6px;border-radius:6px;cursor:pointer}
+.names label.opt:hover{background:var(--hover)}
+.names label.opt input{margin:0;accent-color:var(--accent)}
+.names label.opt b{font-weight:500}
+.names label.opt code{color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.names label.opt:has(input:checked) code{color:var(--accent-text)}
+.names .ren{display:flex;flex-direction:column;gap:6px;padding:8px 0 4px;border-top:1px solid var(--line)}
+.names .ren code{overflow-wrap:anywhere;color:var(--text)}
+.names .ren .row{display:flex;gap:6px}
+.names .ren input{flex:1;min-width:0;padding:6px 9px;border-radius:7px;border:1px solid var(--line);background:var(--deep);font:12px var(--font-mono);outline:none}
+.names .ren input:focus{border-color:color-mix(in srgb,var(--accent) 60%,transparent)}
+.names .ren .btn{padding:5px 10px;font-size:12px}
+.names p{margin:2px 0 8px;color:var(--faint);font-size:11px;line-height:1.5}
 
 /* side panel, docked right */
 .side{position:fixed;z-index:5;right:0;top:calc(var(--hdr) + env(safe-area-inset-top,0px));bottom:calc(var(--foot) + env(safe-area-inset-bottom,0px));width:min(380px,100vw);padding:18px 18px calc(18px + env(safe-area-inset-right,0px) * 0);overflow:auto;display:flex;flex-direction:column;gap:14px;background:var(--surface);border-left:1px solid var(--line);animation:slide .25s cubic-bezier(.4,0,.2,1)}
@@ -122,6 +146,14 @@ body:has(.side:not([hidden])) .ctrls{right:calc(min(380px,100vw) + 14px)}
 .tip .s{color:var(--muted)}
 .tip .c{margin-top:5px;color:var(--muted);font-size:11.5px;line-height:1.55}
 .tip .c b{display:inline;font-size:11.5px;color:var(--text);font-weight:500}
+.tip.wide{max-width:min(420px,calc(100vw - 16px))}
+.hdr{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:3px 10px;margin:7px 0 0;font-size:11.5px}
+.hdr dt{color:var(--muted);font-family:var(--font-mono)}
+.hdr dd{margin:0;color:var(--text);font-family:var(--font-mono);overflow-wrap:anywhere}
+.hdr dd div{color:var(--text)}
+.hdr dt.grp{grid-column:1/-1;margin-top:2px}
+.hdr dd.grp{grid-column:1/-1;padding-left:12px;border-left:1px solid var(--line-2);margin-left:2px}
+.hdr dd .s{color:var(--faint)}
 
 /* status bar */
 .status{position:fixed;z-index:6;left:0;right:0;bottom:0;min-height:calc(var(--foot) + env(safe-area-inset-bottom,0px));padding:0 max(16px,env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0px) max(16px,env(safe-area-inset-left,0px));display:flex;align-items:center;justify-content:space-between;gap:16px;background:var(--deep);border-top:1px dashed var(--line);font:11px var(--font-mono);color:var(--faint);white-space:nowrap;overflow:hidden}
@@ -143,7 +175,7 @@ body:has(.side:not([hidden])) .ctrls{right:calc(min(380px,100vw) + 14px)}
   .searchwrap{order:3;flex-basis:100%;max-width:none}
   .hacts{margin-left:auto}
   .side{top:auto;height:46vh;width:100%;border-left:0;border-top:1px solid var(--line)}
-  body:has(.side:not([hidden])) .legend{display:none}
+  body:has(.side:not([hidden])) .leftcol{display:none}
   body:has(.side:not([hidden])) .ctrls{right:max(14px,env(safe-area-inset-right,0px));bottom:calc(46vh + var(--foot) + 14px)}
   .tabs button{padding:5px 9px}
   kbd{display:none}
@@ -178,9 +210,11 @@ body:has(.side:not([hidden])) .ctrls{right:calc(min(380px,100vw) + 14px)}
   <input type="file" id="fileIn" accept=".xml,.gml,.xsd,.svg,.kml,.rss,.atom,.plist,text/xml,application/xml" hidden>
 </header>
 
+<div class="rootline" id="rootLine" hidden><span>Root element</span><code id="rootTag"></code></div>
+
 <div class="tabs" id="modes" hidden role="group" aria-label="View">
-  <button type="button" id="modeLinks" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M10.8 7.2 6.3 15.8M13.2 7.2l4.5 8.6M7.5 18h9"/></svg>By meaning</button>
   <button type="button" id="modeTree" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="6" cy="5" r="2.5"/><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 7.5v9M6 12h9.5"/></svg>As XML tree</button>
+  <button type="button" id="modeLinks" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M10.8 7.2 6.3 15.8M13.2 7.2l4.5 8.6M7.5 18h9"/></svg>By meaning</button>
 </div>
 
 <div class="ctrls" id="ctrls">
@@ -193,10 +227,23 @@ body:has(.side:not([hidden])) .ctrls{right:calc(min(380px,100vw) + 14px)}
   <button type="button" id="play" class="on" title="Pause orbits (space)" aria-label="Pause orbits" aria-pressed="true"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg></button>
 </div>
 
+<div class="leftcol" id="leftcol">
+<details class="glass names" id="namesBox">
+  <summary>Display names</summary>
+  <p>Changes only how names are shown. The file is not changed.</p>
+  <fieldset id="nameStyles">
+    <legend>Style for every element</legend>
+    <label class="opt"><input type="radio" name="nstyle" value="full" checked><b>Full</b><code id="nsFull"></code></label>
+    <label class="opt"><input type="radio" name="nstyle" value="shorter"><b>Shorter</b><code id="nsShorter"></code></label>
+    <label class="opt"><input type="radio" name="nstyle" value="shortest"><b>Shortest</b><code id="nsShortest"></code></label>
+  </fieldset>
+  <div class="ren" id="renameArea"></div>
+</details>
 <details class="glass legend" id="legend" open>
   <summary>Colour key</summary>
   <div id="legendBody"></div>
 </details>
+</div>
 
 <aside class="glass side" id="side" hidden aria-live="polite"></aside>
 <div class="tip" id="tip" hidden></div>
