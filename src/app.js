@@ -405,7 +405,7 @@ function headerHtml(h, max = 12, per = 8){
 }
 function tipHtml(b){
   const n = A.src.node(b.id), kind = b.type === "group" ? `${b.count} × ${esc(b.label)} (folded)` : esc(n?.kind || "");
-  const act = b.type === "group" ? "Click to spread them into a full orbit" : canToggle(b) ? (b.isOpen ? "Click to fold its child elements" : "Click to show its child elements") : "";
+  const act = b.type === "group" ? "Click to spread them into a full orbit" : A.sel !== b.id ? "Click to centre it" + (canToggle(b) ? "; click again to show its child elements" : "") : canToggle(b) ? (b.isOpen ? "Click again to fold its child elements" : "Click again to show its child elements") : "";
   const cross = A.O.links.filter(l => l.kind !== "spoke" && (l.a === b || l.b === b)).length;
   const head = !b.parent && A.src.header ? headerHtml(A.src.header()) : "";
   return `<b>${esc(b.label)}</b><span class="s">${kind}</span>${head}${b.parent ? `<div class="c">${chainText(b)}</div>` : ""}${cross ? `<div class="c">${cross} more link${cross === 1 ? "" : "s"} (dashed)</div>` : ""}${act ? `<div class="c">${act}</div>` : ""}`;
@@ -443,9 +443,20 @@ function clickBody(b){
     O.spread.add(b.id); O.build();
     const p = O.bodies.get(b.parent.id); select(p); followBody(p, true); return;
   }
+  /* first click: centre it; the next click shows its children */
+  if (A.sel !== b.id) { select(b); followBody(b, false); return; }
+  toggleOpen(b);
+}
+/* show every child of b, spread out (no folded groups), or fold them again */
+function toggleOpen(b){
+  const O = A.O;
   let opened = false;
   if (canToggle(b)) {
-    if (O.open.has(b.id)) O.open.delete(b.id); else { O.open.add(b.id); opened = true; }
+    if (O.open.has(b.id)) O.open.delete(b.id);
+    else {
+      O.open.add(b.id); opened = true;
+      if (A.src.mode === "tree") for (const g of A.src.groups(b.id)) O.spread.add(b.id + ">" + g.key);
+    }
     O.build(); O.step(0, false);
   }
   const nb = O.bodies.get(b.id);
@@ -491,7 +502,8 @@ $("side").addEventListener("click", e => {
   if (t.dataset.sel) { const n = A.O.bodies.get(t.dataset.sel); if (n) { select(n); followBody(n, false); canvas.focus({ preventScroll:true }); } }
   else if (t.dataset.find) reveal(t.dataset.find);
   else if (t.dataset.act === "close") select(null);
-  else if (b && (t.dataset.act === "toggle" || t.dataset.act === "spread")) clickBody(b);
+  else if (b && t.dataset.act === "toggle") toggleOpen(b);
+  else if (b && t.dataset.act === "spread") clickBody(b);
 });
 
 /* ---------------- find ---------------- */
@@ -601,7 +613,7 @@ function renderLegend(){
     if (tags.length > 16) out.push(`<div class="k" style="color:var(--faint)">… and ${tags.length - 16} more tags</div>`);
     out.push(`<div class="k"><i style="background:repeating-linear-gradient(90deg,${colour("ref")} 0 5px,transparent 5px 9px)"></i>id reference (ref, href, idref…)</div>`);
   }
-  out.push(`<p>Click a body to open its own orbits; click again to fold them. A dashed circle with a number is a folded group: click it to spread it out. Drag a body to pull it about; it drifts back to its orbit. Hover to light up the chain back to the centre.</p>`);
+  out.push(`<p>Click a circle to centre it; click it again to show all its child elements; once more to fold them. A dashed circle with a number is a folded group: click it to spread it out. Drag a body to pull it about; it drifts back to its orbit. Hover to light up the chain back to the centre.</p>`);
   $("legendBody").innerHTML = out.join("");
 }
 
@@ -615,6 +627,14 @@ const NAMES_KEY = "xml-orbitree.names";
   } catch {}
   const r = document.querySelector(`input[name="nstyle"][value="${XO.names.style}"]`); if (r) r.checked = true;
 })();
+/* the explanations in the Display names box: shown unless the viewer hides them */
+const INFO_KEY = "xml-orbitree.namesInfo";
+function setNamesInfo(on){
+  document.body.classList.toggle("ninfo-off", !on);
+  for (const b of document.querySelectorAll('button[data-nact="info"]')) { b.textContent = on ? "Hide info" : "Show info"; b.setAttribute("aria-pressed", on); }
+  try { localStorage.setItem(INFO_KEY, on ? "on" : "off"); } catch {}
+}
+try { setNamesInfo(localStorage.getItem(INFO_KEY) !== "off"); } catch { setNamesInfo(true); }
 function saveNames(){ try { localStorage.setItem(NAMES_KEY, JSON.stringify({ style:XO.names.style, custom:Object.fromEntries(XO.names.custom) })); } catch {} }
 /* an example tag from this file whose three styles all differ, to show what each style does */
 function exampleTag(){
@@ -632,6 +652,7 @@ function renderNames(){
   const t = exampleTag(), N = XO.names;
   renderRootLine();
   const ex = $("nsExample"); ex.textContent = N.styled(t, N.style); ex.title = "Example from this file: " + N.styled(t, N.style);
+  for (const [id, st] of [["nsFull", "full"], ["nsShorter", "shorter"], ["nsShortest", "shortest"]]) { const el = $(id); el.textContent = N.styled(t, st); el.title = N.styled(t, st); }
   renderRename();
 }
 function selectedTag(){
@@ -643,7 +664,8 @@ function renameForm(tag, inputId){
   const isRoot = A.doc && tag === A.doc.documentElement.nodeName;
   const help = `Shown for every element with this tag${n > 1 ? " (" + n.toLocaleString() + " in this file)" : ""}. Leave empty to use the style.${isRoot ? " The centre circle keeps the file's own name." : ""}`;
   return `<div class="lbl" title="${esc(shown !== tag ? "In the file: <" + tag + ">" : "")}">Rename <b>&lt;${esc(shown)}&gt;</b>${n > 1 ? ` · ${n.toLocaleString()}×` : ""}</div>
-    <div class="row"><input id="${inputId}" data-tag="${esc(tag)}" type="text" value="${esc(cur)}" placeholder="${esc(N.styled(tag, N.style))}" title="${esc(help)}" aria-label="New display name for ${esc(shown)}" autocomplete="off"><button class="btn primary" type="button" data-nact="save">Save</button>${cur ? `<button class="btn" type="button" data-nact="reset" title="Back to the style's name">Reset</button>` : ""}</div>`;
+    <div class="row"><input id="${inputId}" data-tag="${esc(tag)}" type="text" value="${esc(cur)}" placeholder="${esc(N.styled(tag, N.style))}" title="${esc(help)}" aria-label="New display name for ${esc(shown)}" autocomplete="off"><button class="btn primary" type="button" data-nact="save">Save</button>${cur ? `<button class="btn" type="button" data-nact="reset" title="Back to the style's name">Reset</button>` : ""}</div>
+    <p class="ninfo">${shown !== tag ? `In the file: &lt;${esc(tag)}&gt;. ` : ""}${esc(help)}</p>`;
 }
 function renderRename(){
   const box = $("renameArea"), N = XO.names, tag = selectedTag();
@@ -665,6 +687,7 @@ $("nameStyles").addEventListener("change", e => { if (e.target.name === "nstyle"
 function onRename(e){
   const t = e.target.closest("button[data-nact]"); if (!t) return;
   e.stopPropagation();
+  if (t.dataset.nact === "info") { setNamesInfo(document.body.classList.contains("ninfo-off")); return; }
   const box = t.closest(".ren, .box") || e.currentTarget, inp = box.querySelector("input[data-tag]"), tag = inp?.dataset.tag, N = XO.names;
   if (t.dataset.nact === "save" && tag) { const v = inp.value.trim(); if (v) N.custom.set(tag, v); else N.custom.delete(tag); }
   else if (t.dataset.nact === "reset" && tag) N.custom.delete(tag);
@@ -676,7 +699,9 @@ function onRename(e){
   if (back) $(back)?.focus();
 }
 function onRenameKey(e){ if (e.key === "Enter" && e.target.matches("input[data-tag]")) { e.preventDefault(); e.target.parentElement.querySelector('button[data-nact="save"]').click(); } }
-for (const id of ["renameArea", "side"]) { $(id).addEventListener("click", onRename, true); $(id).addEventListener("keydown", onRenameKey); }
+$("namesBox").addEventListener("click", onRename, true);
+for (const id of ["side"]) $(id).addEventListener("click", onRename, true);
+for (const id of ["renameArea", "side"]) $(id).addEventListener("keydown", onRenameKey);
 
 /* ---------------- controls ---------------- */
 const ICON_PAUSE = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
