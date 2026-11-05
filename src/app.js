@@ -33,11 +33,11 @@ function resize(){
 }
 /* the free part of the screen: below the top bar, left of the side panel */
 function freeArea(){
-  const tabs = $("modes"), top = (tabs.hidden ? $("top") : tabs).getBoundingClientRect().bottom + 8;
+  const top = Math.max(...["top", "rootLine", "modes"].map(id => $(id)).filter(el => !el.hidden).map(el => el.getBoundingClientRect().bottom)) + 8;
   const side = $("side"), sr = side.hidden ? null : side.getBoundingClientRect();
   const right = sr && W > 760 ? sr.left - 56 : W - 56;
   const bottom = sr && W <= 760 ? sr.top - 8 : $("foot").getBoundingClientRect().top - 8;
-  const lg = $("legend"), left = lg.open && W > 1100 ? Math.min(lg.getBoundingClientRect().right + 8, W * 0.3) : 8;
+  const lc = $("leftcol"), left = ($("legend").open || $("namesBox").open) && W > 1100 ? Math.min(lc.getBoundingClientRect().right + 8, W * 0.3) : 8;
   return { x0:left, y0:top, x1:right, y1:Math.max(top + 80, bottom) };
 }
 
@@ -190,6 +190,15 @@ function draw(){
     } else {
       ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
       if (b.abstract) { ctx.fillStyle = "#06060a"; ctx.beginPath(); ctx.arc(x, y, r * 0.55, 0, 7); ctx.fill(); }
+      /* how many direct child elements it has; nothing when it has none, or when the circle is too small to read */
+      if (b.kids > 0 && r >= 4) {
+        const t = String(b.kids), fs = Math.round(Math.min(16, Math.max(7, r * (t.length > 2 ? 0.62 : 0.85)))), font = `700 ${fs}px "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace`;
+        if (textW(t, font) <= r * 1.9) {
+          ctx.font = font; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+          ctx.fillStyle = b.abstract ? "#f5f5f7" : XO.sources.inkFor(col); ctx.fillText(t, x, y + 0.5);
+          ctx.textAlign = "left";
+        }
+      }
     }
     if (b.isOpen && b.depth > 0 && r > 2) { ctx.globalAlpha = on ? 0.6 : 0.15; ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(x, y, r + 3.5, 0, 7); ctx.stroke(); }
     if (b.id === A.hover || b.id === A.sel) { ctx.globalAlpha = b.id === A.sel ? 0.9 : 0.5; ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 4, 0, 7); ctx.stroke(); }
@@ -371,7 +380,7 @@ function setHover(b, e){
   if (id === A.hover) return;
   A.hover = id; kick();
   if (!b) { hideTip(); return; }
-  const tip = $("tip"); tip.innerHTML = tipHtml(b); tip.hidden = false; placeTip(b);
+  const tip = $("tip"); tip.innerHTML = tipHtml(b); tip.classList.toggle("wide", !b.parent); tip.hidden = false; placeTip(b);
 }
 function hideTip(){ $("tip").hidden = true; }
 function chainText(b){
@@ -380,17 +389,24 @@ function chainText(b){
 /* how a body hangs off its parent: the kind of link (catalogue) or its tag (plain XML) */
 function hopText(x, n){ return A.src.mode === "links" ? clip(x.via?.label || x.ring?.grp.title || "", n) : (x.type === "group" ? x.label : x.kind || ""); }
 const hopColour = x => A.src.mode === "links" ? colour(x.ring?.color) : colour(x.color);
+const canToggle = b => b.type !== "group" && A.src.canOpen(b.id) && (!!b.parent || A.src.mode === "tree");
+function headerHtml(h, max = 14){
+  if (!h?.length) return "";
+  const rows = h.slice(0, max).map(f => `<dt${f.items ? ' class="grp"' : ""}>${esc(f.key)}</dt><dd${f.items ? ' class="grp"' : ""}>${f.items ? f.items.slice(0, 10).map(i => `<div><span class="s">${esc(i.key)}:</span> ${esc(clip(i.value, 120))}</div>`).join("") + (f.items.length > 10 ? `<div class="s">… ${f.items.length - 10} more</div>` : "") : esc(clip(f.value, 160))}</dd>`).join("");
+  return `<dl class="hdr">${rows}</dl>` + (h.length > max ? `<div class="c">… and ${h.length - max} more fields</div>` : "");
+}
 function tipHtml(b){
   const n = A.src.node(b.id), kind = b.type === "group" ? `${b.count} × ${esc(b.label)} (folded)` : esc(n?.kind || "");
-  const act = b.type === "group" ? "Click to spread them into a full orbit" : b.parent && A.src.canOpen(b.id) ? (b.isOpen ? "Click to fold its orbits" : "Click to open its own orbits") : "";
+  const act = b.type === "group" ? "Click to spread them into a full orbit" : canToggle(b) ? (b.isOpen ? "Click to fold its child elements" : "Click to show its child elements") : "";
   const cross = A.O.links.filter(l => l.kind !== "spoke" && (l.a === b || l.b === b)).length;
-  return `<b>${esc(b.type === "group" ? b.label : b.label)}</b><span class="s">${kind}</span>${b.parent ? `<div class="c">${chainText(b)}</div>` : ""}${cross ? `<div class="c">${cross} more link${cross === 1 ? "" : "s"} (dashed)</div>` : ""}${act ? `<div class="c">${act}</div>` : ""}`;
+  const head = !b.parent && A.src.header ? headerHtml(A.src.header()) : "";
+  return `<b>${esc(b.label)}</b><span class="s">${kind}</span>${head}${b.parent ? `<div class="c">${chainText(b)}</div>` : ""}${cross ? `<div class="c">${cross} more link${cross === 1 ? "" : "s"} (dashed)</div>` : ""}${act ? `<div class="c">${act}</div>` : ""}`;
 }
 /* Try spots all round the body; keep the one covering least of it, its lit neighbours and the panels. */
 function placeTip(b){
   const tip = $("tip"), [sx, sy] = S(b), rr = b.size * A.cam.k + 6, w = tip.offsetWidth, h = tip.offsetHeight;
   const avoid = [{ x0:sx - rr, y0:sy - rr, x1:sx + rr, y1:sy + rr, wt:1000 }];
-  for (const el of [$("top"), $("side"), $("legend"), $("modes"), $("ctrls"), $("foot")]) if (el && !el.hidden) { const r = el.getBoundingClientRect(); avoid.push({ x0:r.left, y0:r.top, x1:r.right, y1:r.bottom, wt:30 }); }
+  for (const el of [$("top"), $("side"), $("leftcol"), $("rootLine"), $("modes"), $("ctrls"), $("foot")]) if (el && !el.hidden) { const r = el.getBoundingClientRect(); avoid.push({ x0:r.left, y0:r.top, x1:r.right, y1:r.bottom, wt:30 }); }
   const lit = litSet();
   if (lit) for (const id of lit.nodes) { const n = A.O.bodies.get(id); if (n && n !== b) { const [x, y] = S(n); avoid.push({ x0:x - 14, y0:y - 14, x1:x + 14, y1:y + 14, wt:4 }); } }
   const base = b.parent ? Math.atan2(b.y - b.parent.y, b.x - b.parent.x) : Math.PI / 4;
@@ -408,6 +424,7 @@ function placeTip(b){
 }
 function select(b){
   A.sel = b ? b.id : null;
+  renderRename();
   if (!b) { A.follow = null; $("side").hidden = true; kick(); return; }
   renderSide(b); kick();
 }
@@ -419,9 +436,9 @@ function clickBody(b){
     const p = O.bodies.get(b.parent.id); select(p); followBody(p, true); return;
   }
   let opened = false;
-  if (b.parent && A.src.canOpen(b.id)) {
+  if (canToggle(b)) {
     if (O.open.has(b.id)) O.open.delete(b.id); else { O.open.add(b.id); opened = true; }
-    O.build();
+    O.build(); O.step(0, false);
   }
   const nb = O.bodies.get(b.id);
   select(nb); followBody(nb, opened);
@@ -442,6 +459,7 @@ function renderSide(b){
   parts.push(`<h2>${esc(b.type === "group" ? `${b.count} × ${b.label}` : info?.title || b.label)}</h2>`);
   if (info?.code) parts.push(`<div class="code">${esc(info.code)}</div>`);
   if (b.parent) parts.push(`<div class="box"><h3>Where it comes from</h3><div class="chain">${chainHtml}</div></div>`);
+  if (info?.header?.length) parts.push(`<div class="box"><h3>About this file</h3>${headerHtml(info.header, 40)}</div>`);
   if (info?.def) parts.push(`<p>${esc(info.def)}</p>`);
   if (info?.facts?.length) parts.push(`<div class="tags">${info.facts.map(f => `<span class="tag">${esc(f)}</span>`).join("")}</div>`);
   if (info?.attrs?.length) parts.push(`<div><h3>Attributes</h3><dl class="attrs">${info.attrs.slice(0, 40).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(clip(v, 200))}</dd>`).join("")}</dl></div>`);
@@ -453,7 +471,8 @@ function renderSide(b){
   if (cross.length && A.src.mode === "links") parts.push(`<div><h3>Also linked (dashed lines)</h3><div class="list">${cross.slice(0, 20).map(l => { const o = l.a === b ? l.b : l.a; return linkRow(o.id, (A.src.palette.get(l.color)?.title || "") + ": " + o.label, l.color); }).join("")}</div></div>`);
   const acts = [];
   if (b.type === "group") acts.push(`<button class="btn primary" type="button" data-act="spread">Spread into a full orbit</button>`);
-  else if (b.parent && A.src.canOpen(b.id)) acts.push(`<button class="btn primary" type="button" data-act="toggle">${b.isOpen ? "Fold its orbits" : "Open its own orbits"}</button>`);
+  else if (canToggle(b)) acts.push(`<button class="btn primary" type="button" data-act="toggle">${b.isOpen ? "Fold its child elements" : "Show its child elements"}</button>`);
+  if (info?.tag) acts.push(`<button class="btn" type="button" data-act="rename">Rename</button>`);
   acts.push(`<button class="btn" type="button" data-act="close">Close</button>`);
   parts.push(`<div class="acts">${acts.join("")}</div>`);
   side.innerHTML = parts.join(""); side.hidden = false; side.dataset.id = b.id;
@@ -464,6 +483,7 @@ $("side").addEventListener("click", e => {
   if (t.dataset.sel) { const n = A.O.bodies.get(t.dataset.sel); if (n) { select(n); followBody(n, false); canvas.focus({ preventScroll:true }); } }
   else if (t.dataset.find) reveal(t.dataset.find);
   else if (t.dataset.act === "close") select(null);
+  else if (t.dataset.act === "rename") { $("namesBox").open = true; renderRename(); $("renameIn")?.focus(); }
   else if (b && (t.dataset.act === "toggle" || t.dataset.act === "spread")) clickBody(b);
 });
 
@@ -502,7 +522,7 @@ $("results").addEventListener("click", e => {
 });
 
 /* ---------------- loading ---------------- */
-function note(msg){ const t = $("tip"); t.innerHTML = `<b>${esc(msg)}</b>`; t.hidden = false; t.style.left = Math.max(8, W / 2 - 150) + "px"; t.style.top = ($("top").getBoundingClientRect().bottom + 10) + "px"; clearTimeout(note.t); note.t = setTimeout(hideTip, 3500); }
+function note(msg){ const t = $("tip"); t.classList.remove("wide"); t.innerHTML = `<b>${esc(msg)}</b>`; t.hidden = false; t.style.left = Math.max(8, W / 2 - 150) + "px"; t.style.top = ($("top").getBoundingClientRect().bottom + 10) + "px"; clearTimeout(note.t); note.t = setTimeout(hideTip, 3500); }
 function bestStart(FC){
   const F = XO.fc;
   const score = it => (it.fbind?.length || 0) + (it.ibind?.length || 0) + it.incoming.length + it.subtypes.length + (it.attrs?.length || 0) / 4;
@@ -512,19 +532,10 @@ function bestStart(FC){
 function setSource(src){
   A.src = src; A.O = new XO.Orbits(src); A.sel = null; A.hover = null; A.follow = null; A.followK = null;
   $("side").hidden = true; hideTip();
-  /* open the first few levels until there is a fair amount to look at */
-  if (src.mode === "tree") {
-    for (let guard = 0; guard < 60; guard++) {
-      A.O.build();
-      if (A.O.order.length > 40) break;
-      const next = A.O.order.find(b => b.type !== "group" && !A.O.open.has(b.id) && src.canOpen(b.id) && b.depth < 2);
-      if (!next) break;
-      A.O.open.add(next.id);
-    }
-  }
+  /* a plain XML file starts as one circle, the root element named after the file; click it to see its children */
   A.O.build();
   for (let i = 0; i < 90; i++) A.O.step(1 / 30, false);
-  renderLegend();
+  renderLegend(); renderNames();
   $("modeLinks").setAttribute("aria-pressed", src.mode === "links"); $("modeTree").setAttribute("aria-pressed", src.mode === "tree");
   $("q").placeholder = src.mode === "links" ? "Search types…" : "Search elements…";
   $("ready").textContent = src.mode === "links" ? "Catalogue · by meaning" : "XML tree";
@@ -538,10 +549,12 @@ function loadText(text, name){
   /* work everything out first, so a failure leaves the current map untouched */
   let FC = XO.fc.isCatalogue(doc) ? XO.fc.parseFC(doc, name) : null;
   if (FC && !FC.items.length) FC = null;
-  const src = FC ? XO.sources.catalogueSource(FC, bestStart(FC), name) : XO.sources.xmlSource(doc, name);
+  const src = XO.sources.xmlSource(doc, name);
   A.doc = doc; A.fileName = name; A.FC = FC;
   const isFC = !!FC;
   $("modes").hidden = !isFC;
+  const rt = doc.documentElement.nodeName;
+  $("rootTag").textContent = rt; $("rootLine").title = "Root element: " + rt; $("rootLine").hidden = false;
   const f = $("file"); f.hidden = false;
   f.className = "pill" + (name.startsWith("samples/") ? " warn" : "");
   f.textContent = name.startsWith("samples/") ? "Example: " + name.slice(8).replace(/_/g, " ").replace(/\.xml$/, "") : name;
@@ -585,6 +598,65 @@ function renderLegend(){
   $("legendBody").innerHTML = out.join("");
 }
 
+/* ---------------- display names ---------------- */
+const NAMES_KEY = "xml-galaxy.names";
+(function loadNames(){
+  try {
+    const v = JSON.parse(localStorage.getItem(NAMES_KEY) || "null");
+    if (v && ["full", "shorter", "shortest"].includes(v.style)) XO.names.style = v.style;
+    if (v && v.custom) for (const [k, n] of Object.entries(v.custom)) if (typeof n === "string" && n.trim()) XO.names.custom.set(k, n.trim());
+  } catch {}
+  const r = document.querySelector(`input[name="nstyle"][value="${XO.names.style}"]`); if (r) r.checked = true;
+})();
+function saveNames(){ try { localStorage.setItem(NAMES_KEY, JSON.stringify({ style:XO.names.style, custom:Object.fromEntries(XO.names.custom) })); } catch {} }
+/* an example tag from this file whose three styles all differ, to show what each style does */
+function exampleTag(){
+  const N = XO.names, tags = A.src?.mode === "tree" ? [...A.src.palette.values()].filter(v => v.tag).map(v => v.tag) : [];
+  if (A.doc) tags.unshift(A.doc.documentElement.nodeName);
+  const differ = t => { const a = N.styled(t, "full"), b = N.styled(t, "shorter"), c = N.styled(t, "shortest"); return a !== b && b !== c; };
+  return tags.find(differ) || tags.find(t => N.styled(t, "full") !== N.styled(t, "shortest")) || tags[0] || "S100FC:S100_FC_DefinitionSources";
+}
+function renderNames(){
+  const t = exampleTag(), N = XO.names;
+  for (const [id, st] of [["nsFull", "full"], ["nsShorter", "shorter"], ["nsShortest", "shortest"]]) { const el = $(id); el.textContent = N.styled(t, st); el.title = N.styled(t, st); }
+  renderRename();
+}
+function renderRename(){
+  const box = $("renameArea"), N = XO.names;
+  const b = A.sel && A.O?.bodies.get(A.sel), tag = b && b.type !== "group" && A.src?.mode === "tree" ? A.src.tagOf(b.id) : "";
+  const reset = N.custom.size ? `<button class="btn" type="button" data-nact="resetAll">Reset all custom names (${N.custom.size})</button>` : "";
+  if (!tag) {
+    box.innerHTML = `<h4>Rename one element</h4><p>${A.src?.mode === "tree" ? "Click an element on the map, then type its new name here." : "Renaming works in the XML tree view."}</p>${reset}`;
+    return;
+  }
+  const n = A.src.palette.get("t:" + tag)?.count || 1, cur = N.custom.get(tag) || "";
+  box.innerHTML = `<h4>Rename one element</h4><code>&lt;${esc(tag)}&gt;</code>
+    <div class="row"><input id="renameIn" type="text" value="${esc(cur)}" placeholder="${esc(N.styled(tag, N.style))}" aria-label="New display name" autocomplete="off"><button class="btn primary" type="button" data-nact="save">Save</button></div>
+    <p>Shown for every &lt;${esc(tag)}&gt; element${n > 1 ? ` (${n.toLocaleString()} in this file)` : ""}. Leave empty to use the style.</p>
+    <div class="row">${cur ? `<button class="btn" type="button" data-nact="reset">Reset this name</button>` : ""}${reset}</div>`;
+  box.dataset.tag = tag;
+}
+function applyNames(){
+  saveNames();
+  if (!A.O) return;
+  A.O.build();
+  renderLegend(); renderNames();
+  const s = A.O.bodies.get(A.sel); if (s) renderSide(s);
+  const h = A.O.bodies.get(A.hover); if (h && !$("tip").hidden) { $("tip").innerHTML = tipHtml(h); placeTip(h); }
+  if (!$("results").hidden) showResults();
+  kick();
+}
+$("nameStyles").addEventListener("change", e => { if (e.target.name === "nstyle") { XO.names.style = e.target.value; applyNames(); } });
+$("renameArea").addEventListener("click", e => {
+  const t = e.target.closest("button[data-nact]"); if (!t) return;
+  const tag = $("renameArea").dataset.tag, N = XO.names;
+  if (t.dataset.nact === "save" && tag) { const v = $("renameIn").value.trim(); if (v) N.custom.set(tag, v); else N.custom.delete(tag); }
+  else if (t.dataset.nact === "reset" && tag) N.custom.delete(tag);
+  else if (t.dataset.nact === "resetAll") N.custom.clear();
+  applyNames();
+});
+$("renameArea").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.id === "renameIn") { e.preventDefault(); $("renameArea").querySelector('button[data-nact="save"]').click(); } });
+
 /* ---------------- controls ---------------- */
 const ICON_PAUSE = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
 const ICON_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>';
@@ -600,14 +672,14 @@ document.addEventListener("keydown", e => {
 });
 $("play").addEventListener("click", () => setPlay(!A.playing));
 $("fit").addEventListener("click", () => fit(true));
-$("foldAll").addEventListener("click", () => { if (!A.O) return; A.O.open = new Set([A.src.rootId]); A.O.spread.clear(); select(null); A.O.build(); setTimeout(() => fit(true), 250); kick(); });
+$("foldAll").addEventListener("click", () => { if (!A.O) return; A.O.open = new Set(A.src.mode === "tree" ? [] : [A.src.rootId]); A.O.spread.clear(); select(null); A.O.build(); setTimeout(() => fit(true), 250); kick(); });
 $("modeLinks").addEventListener("click", () => { if (A.FC && A.src.mode !== "links") setSource(XO.sources.catalogueSource(A.FC, bestStart(A.FC), A.fileName)); });
 $("modeTree").addEventListener("click", () => { if (A.doc && A.src.mode !== "tree") setSource(XO.sources.xmlSource(A.doc, A.fileName)); });
 for (const id of ["openBtn", "openBtn2"]) $(id).addEventListener("click", () => $("fileIn").click());
 $("sampleBtn").addEventListener("click", () => { A.userLoaded = false; loadSample(); });
 $("examples").addEventListener("change", e => { const u = e.target.value; e.target.value = ""; if (u) { A.userLoaded = false; loadSample(u); } });
 $("fileIn").addEventListener("change", e => { const f = e.target.files[0]; if (f) loadFile(f); e.target.value = ""; });
-$("legend").addEventListener("toggle", () => { const s = A.O?.bodies.get(A.sel); if (s && s.parent) followBody(s, false); else fit(true); });
+for (const id of ["legend", "namesBox"]) $(id).addEventListener("toggle", () => { const s = A.O?.bodies.get(A.sel); if (s && s.parent) followBody(s, false); else fit(true); });
 let dragDepth = 0;
 window.addEventListener("dragenter", e => { if ([...(e.dataTransfer?.types || [])].includes("Files")) { dragDepth++; $("drop").hidden = false; } });
 window.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; $("drop").hidden = true; } });
@@ -620,6 +692,7 @@ document.addEventListener("paste", e => {
 });
 window.addEventListener("resize", () => { resize(); });
 if (innerWidth < 1100) $("legend").open = false;
+renderNames();
 resize();
 loadSample();
 window.XO.app = A; A.loadText = loadText; A.reveal = reveal; A.clickBody = clickBody;

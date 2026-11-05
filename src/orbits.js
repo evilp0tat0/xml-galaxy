@@ -13,7 +13,8 @@ const MAX_UNFOLDED = 48;                 /* more children than this and the bigg
 class Orbits {
   constructor(src){
     this.src = src;
-    this.open = new Set([src.rootId]);  /* bodies whose own orbits are shown */
+    /* bodies whose own orbits are shown; a plain XML file starts as one closed circle */
+    this.open = new Set(src.startOpen === false ? [] : [src.rootId]);
     this.spread = new Set();            /* folded groups the user has spread out */
     this.t = 0;
     this.bodies = new Map();            /* id → body; kept across rebuilds so positions carry over */
