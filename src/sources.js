@@ -208,7 +208,7 @@ function xmlSource(doc, fileName){
       const direct = [...r.el.childNodes].filter(n => n.nodeType === 3 || n.nodeType === 4).map(n => n.nodeValue).join("").trim();
       const kidTags = new Map(); for (const k of r.kids) kidTags.set(k.tag, (kidTags.get(k.tag) || 0) + 1);
       return {
-        kind:"Element <" + r.tag + ">" + (r.depth === 0 ? " · the root element" : ""), title:r.depth === 0 ? labelOf(r) : r.key || dn(r.tag), code:xpath(r), tag:r.tag,
+        kind:"Element <" + dn(r.tag) + ">" + (r.depth === 0 ? " · the root element" : ""), title:r.depth === 0 ? labelOf(r) : r.key || dn(r.tag), code:xpath(r), tag:r.tag,
         header:r.depth === 0 ? header() : null,
         def: direct ? clip(direct, 600) : "",
         attrs:[...r.el.attributes].map(a => [a.name, a.value]),
@@ -224,7 +224,7 @@ function xmlSource(doc, fileName){
     const parts = [];
     for (let x = r; x; x = x.parent) {
       const same = x.parent ? x.parent.kids.filter(k => k.tag === x.tag) : [x];
-      parts.unshift(x.tag + (same.length > 1 ? "[" + (same.indexOf(x) + 1) + "]" : ""));
+      parts.unshift(dn(x.tag) + (same.length > 1 ? "[" + (same.indexOf(x) + 1) + "]" : ""));
     }
     return "/" + parts.join("/");
   }
