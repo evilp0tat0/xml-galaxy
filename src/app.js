@@ -152,8 +152,8 @@ function draw(){
     const x = X(b), y = Y(b), rr = ring.r * k;
     if (rr < 1.5 || !onScreen(x, y, rr) || rr > 4 * Math.hypot(W, H) + Math.hypot(x - W / 2, y - H / 2)) continue;
     const on = lit?.rings.has(ring.id);
-    ctx.globalAlpha = lit ? (on ? 0.55 : 0.04) : (b.depth === 0 ? 0.16 : 0.12);
-    ctx.strokeStyle = colour(ring.color); ctx.lineWidth = on ? 1.3 : 0.8;
+    ctx.globalAlpha = lit ? (on ? 0.3 : 0.025) : (b.depth === 0 ? 0.07 : 0.055);
+    ctx.strokeStyle = colour(ring.color); ctx.lineWidth = on ? 1 : 0.6;
     ctx.setLineDash(ring.grp.folded ? [3, 4] : []);
     ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.stroke();
   }
@@ -477,7 +477,7 @@ function renderSide(b){
   if (info?.broken?.length) parts.push(`<div><h3>Broken references</h3><div class="list">${info.broken.slice(0, 20).map(t => `<div class="it" style="color:var(--danger)">${esc(t)}</div>`).join("")}</div></div>`);
   if (info?.linksIn?.length) parts.push(`<div><h3>Pointed at by</h3><div class="list">${info.linksIn.slice(0, 30).map(o => linkRow(o.id, o.text, o.color)).join("")}</div></div>`);
   if (cross.length && A.src.mode === "links") parts.push(`<div><h3>Also linked (dashed lines)</h3><div class="list">${cross.slice(0, 20).map(l => { const o = l.a === b ? l.b : l.a; return linkRow(o.id, (A.src.palette.get(l.color)?.title || "") + ": " + o.label, l.color); }).join("")}</div></div>`);
-  if (info?.tag && A.src.mode === "tree") parts.push(`<div class="box ren"><h3>Display name</h3>${renameForm(info.tag, "renameSide")}</div>`);
+  if (info?.tag && A.src.mode === "tree") parts.push(`<div class="ren">${renameForm(info.tag, "renameSide")}</div>`);
   const acts = [];
   if (b.type === "group") acts.push(`<button class="btn primary" type="button" data-act="spread">Spread into a full orbit</button>`);
   else if (canToggle(b)) acts.push(`<button class="btn primary" type="button" data-act="toggle">${b.isOpen ? "Fold its child elements" : "Show its child elements"}</button>`);
@@ -631,7 +631,7 @@ function renderRootLine(){
 function renderNames(){
   const t = exampleTag(), N = XO.names;
   renderRootLine();
-  for (const [id, st] of [["nsFull", "full"], ["nsShorter", "shorter"], ["nsShortest", "shortest"]]) { const el = $(id); el.textContent = N.styled(t, st); el.title = N.styled(t, st); }
+  const ex = $("nsExample"); ex.textContent = N.styled(t, N.style); ex.title = "Example from this file: " + N.styled(t, N.style);
   renderRename();
 }
 function selectedTag(){
@@ -639,16 +639,16 @@ function selectedTag(){
   return b && b.type !== "group" && A.src?.mode === "tree" ? A.src.tagOf(b.id) : "";
 }
 function renameForm(tag, inputId){
-  const N = XO.names, n = A.src.palette.get("t:" + tag)?.count || 1, cur = N.custom.get(tag) || "";
+  const N = XO.names, n = A.src.palette.get("t:" + tag)?.count || 1, cur = N.custom.get(tag) || "", shown = N.show(tag);
   const isRoot = A.doc && tag === A.doc.documentElement.nodeName;
-  return `<code>&lt;${esc(N.show(tag))}&gt;</code>${N.show(tag) !== tag ? `<p>In the file: &lt;${esc(tag)}&gt;</p>` : ""}
-    <div class="row"><input id="${inputId}" data-tag="${esc(tag)}" type="text" value="${esc(cur)}" placeholder="${esc(N.styled(tag, N.style))}" aria-label="New display name for ${esc(N.show(tag))}" autocomplete="off"><button class="btn primary" type="button" data-nact="save">Save</button>${cur ? `<button class="btn" type="button" data-nact="reset">Reset</button>` : ""}</div>
-    <p>Shown for every element with this tag${n > 1 ? ` (${n.toLocaleString()} in this file)` : ""}. Leave empty to use the style.${isRoot ? " The centre circle keeps the file's own name." : ""}</p>`;
+  const help = `Shown for every element with this tag${n > 1 ? " (" + n.toLocaleString() + " in this file)" : ""}. Leave empty to use the style.${isRoot ? " The centre circle keeps the file's own name." : ""}`;
+  return `<div class="lbl" title="${esc(shown !== tag ? "In the file: <" + tag + ">" : "")}">Rename <b>&lt;${esc(shown)}&gt;</b>${n > 1 ? ` · ${n.toLocaleString()}×` : ""}</div>
+    <div class="row"><input id="${inputId}" data-tag="${esc(tag)}" type="text" value="${esc(cur)}" placeholder="${esc(N.styled(tag, N.style))}" title="${esc(help)}" aria-label="New display name for ${esc(shown)}" autocomplete="off"><button class="btn primary" type="button" data-nact="save">Save</button>${cur ? `<button class="btn" type="button" data-nact="reset" title="Back to the style's name">Reset</button>` : ""}</div>`;
 }
 function renderRename(){
   const box = $("renameArea"), N = XO.names, tag = selectedTag();
-  const reset = N.custom.size ? `<div class="row"><button class="btn" type="button" data-nact="resetAll">Reset all custom names (${N.custom.size})</button></div>` : "";
-  box.innerHTML = `<h4>Rename one element</h4>` + (tag ? renameForm(tag, "renameIn") : `<p>${A.src?.mode === "tree" ? "Click an element on the map, then type its new name here." : "Renaming works in the XML tree view."}</p>`) + reset;
+  const reset = N.custom.size ? `<button class="link" type="button" data-nact="resetAll">Reset all custom names (${N.custom.size})</button>` : "";
+  box.innerHTML = (tag ? renameForm(tag, "renameIn") : `<div class="lbl">${A.src?.mode === "tree" ? "Select an element to rename it." : "Renaming works in the XML tree view."}</div>`) + reset;
 }
 function applyNames(){
   saveNames();
