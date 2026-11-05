@@ -24,12 +24,32 @@ function glowSprite(col){
   glowCache.set(col, c); return c;
 }
 /* ---------------- canvas size ---------------- */
-let W = 0, H = 0, DPR = 1;
+let W = 0, H = 0, DPR = 1, maxDPR = 1;
 function resize(){
-  DPR = Math.min(2, window.devicePixelRatio || 1);
+  maxDPR = Math.min(2, window.devicePixelRatio || 1);
   W = canvas.clientWidth; H = canvas.clientHeight;
-  canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+  setDPR(maxDPR);
   kick();
+}
+function setDPR(d){
+  DPR = d;
+  const w = Math.round(W * d), h = Math.round(H * d);
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+}
+/* Most of a frame's cost is the browser filling and copying the canvas's pixels, not our JS, so on a machine
+   too slow for the full-resolution canvas, render fewer pixels while things move (2x → 1.5x → 1x) and bring
+   the sharp picture back when it is still, or when frames are quick again. */
+let slowFrames = 0, fastFrames = 0, upAfter = 90, sinceUp = 1e9;
+function adaptDPR(gap){
+  sinceUp++;
+  if (gap > 28) {
+    fastFrames = 0;
+    if (++slowFrames >= 5 && DPR > 1) { if (sinceUp < 90) upAfter = Math.min(upAfter * 2, 3600); setDPR(Math.max(1, DPR - 0.5)); slowFrames = 0; }
+  } else {
+    slowFrames = Math.max(0, slowFrames - 1);
+    fastFrames = gap < 20 ? fastFrames + 1 : 0;
+    if (fastFrames >= upAfter && DPR < maxDPR) { setDPR(Math.min(maxDPR, DPR + 0.5)); fastFrames = 0; sinceUp = 0; }
+  }
 }
 /* the free part of the screen: below the top bar, left of the side panel */
 function freeArea(){
@@ -46,13 +66,16 @@ let raf = 0, last = 0;
 function kick(){ if (!raf) raf = requestAnimationFrame(frame); }
 function frame(now){
   raf = 0;
-  const dt = last ? Math.min(0.05, (now - last) / 1000) : 0; last = now;
+  const dt = last ? Math.min(0.05, (now - last) / 1000) : 0;
+  if (last) adaptDPR(now - last);
+  last = now;
   const spin = A.playing && !A.hover && !A.ptr?.dragging;
   const moving = A.O ? A.O.step(dt, spin) : false;
   const camMoving = cameraStep();
   draw();
   if (!A.ptr && A.mx != null && (camMoving || moving || spin)) { const h = hit(A.mx, A.my, A.mslop); if ((h?.id ?? null) !== A.hover) setHover(h); else if (h && !$("tip").hidden) placeTip(h); }
-  if (spin || moving || camMoving || A.ptr?.dragging || A.pulse) raf = requestAnimationFrame(frame); else last = 0;
+  if (spin || moving || camMoving || A.ptr?.dragging || A.pulse) raf = requestAnimationFrame(frame);
+  else { last = 0; slowFrames = fastFrames = 0; upAfter = 90; if (DPR < maxDPR) { setDPR(maxDPR); draw(); } }
 }
 function cameraStep(){
   const c = A.cam, f = REDUCED ? 1 : 0.13;
@@ -131,6 +154,58 @@ function bodyScale(b, lit){
   if (b.id === lit.d.id) return 1.5;
   return lit.nodes.has(b.id) ? 1.15 : 0.6;
 }
+/* Strokes wholly off screen are skipped, and of a dashed stroke only the part on screen is drawn: the browser lays
+   dashes along the whole path, however far off screen it runs, and once zoomed in that was thousands of unseen dashes
+   a frame. The dash offset is set to the length cut off, so the dashes that show sit where they did. */
+const PAD = 40;
+const inPad = (x, y) => x > -PAD && y > -PAD && x < W + PAD && y < H + PAD;
+const GL = [[0.1834346424956498, 0.3626837833783620], [0.5255324099163290, 0.3137066458778873], [0.7966664774136267, 0.2223810344533745], [0.9602898564975363, 0.1012285362903763]];
+function strokeQuad(ax, ay, cx, cy, bx, by, dashed){
+  const at = (t, u = 1 - t) => [u * u * ax + 2 * u * t * cx + t * t * bx, u * u * ay + 2 * u * t * cy + t * t * by];
+  /* where the curve crosses the edges of the padded screen */
+  const ts = [0, 1];
+  for (const [p0, p1, p2, v] of [[ax, cx, bx, -PAD], [ax, cx, bx, W + PAD], [ay, cy, by, -PAD], [ay, cy, by, H + PAD]]) {
+    const a = p0 - 2 * p1 + p2, b = 2 * (p1 - p0), c = p0 - v;
+    if (Math.abs(a) < 1e-9) { if (b) ts.push(-c / b); continue; }
+    const d = b * b - 4 * a * c; if (d < 0) continue;
+    const q = -0.5 * (b + (b < 0 ? -1 : 1) * Math.sqrt(d)); ts.push(q / a); if (q) ts.push(c / q);
+  }
+  const cut = ts.filter(t => t >= 0 && t <= 1).sort((p, q) => p - q);
+  let t0 = -1, t1 = -1;
+  for (let i = 0; i < cut.length - 1; i++) if (cut[i + 1] > cut[i] && inPad(...at((cut[i] + cut[i + 1]) / 2))) { if (t0 < 0) t0 = cut[i]; t1 = cut[i + 1]; }
+  if (t0 < 0) return;
+  ctx.beginPath();
+  if (!dashed || (t0 === 0 && t1 === 1)) { ctx.moveTo(ax, ay); ctx.quadraticCurveTo(cx, cy, bx, by); }
+  else {
+    const u0 = 1 - t0, u1 = 1 - t1;
+    ctx.moveTo(...at(t0));
+    ctx.quadraticCurveTo(u0 * u1 * ax + (u0 * t1 + t0 * u1) * cx + t0 * t1 * bx, u0 * u1 * ay + (u0 * t1 + t0 * u1) * cy + t0 * t1 * by, ...at(t1));
+    if (t0 > 0) {
+      /* length of the cut-off start, by Gauss-Legendre over four pieces */
+      let len = 0;
+      for (let j = 0; j < 4; j++) for (const [x, w] of GL) for (const s of [-x, x]) {
+        const t = t0 * (j + 0.5 + s / 2) / 4, u = 1 - t;
+        len += w * Math.hypot(u * (cx - ax) + t * (bx - cx), u * (cy - ay) + t * (by - cy));
+      }
+      ctx.lineDashOffset = len * t0 / 4;
+    }
+  }
+  ctx.stroke(); ctx.lineDashOffset = 0;
+}
+/* the arcs of a circle that cross the padded screen, as [from, to] angles within 0..2π; null when all of it is on screen */
+function arcSpans(x, y, r){
+  if (inPad(x - r, y - r) && inPad(x + r, y + r)) return null;
+  const T = Math.PI * 2, as = [0, T];
+  for (const d of [-PAD - x, W + PAD - x]) if (Math.abs(d) < r) { const a = Math.acos(d / r); as.push(a, T - a); }
+  for (const d of [-PAD - y, H + PAD - y]) if (Math.abs(d) < r) { const a = Math.asin(d / r); as.push((a + T) % T, Math.PI - a); }
+  as.sort((p, q) => p - q);
+  const out = [];
+  for (let i = 0; i < as.length - 1; i++) {
+    const a = as[i], b = as[i + 1], m = (a + b) / 2;
+    if (b > a && inPad(x + r * Math.cos(m), y + r * Math.sin(m))) { const o = out[out.length - 1]; if (o && o[1] === a) o[1] = b; else out.push([a, b]); }
+  }
+  return out;
+}
 function draw(){
   const c = A.cam;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -147,11 +222,15 @@ function draw(){
   for (const b of O.order) for (const ring of b.rings) {
     const x = X(b), y = Y(b), rr = ring.r * k;
     if (rr < 1.5 || !onScreen(x, y, rr) || rr > 4 * Math.hypot(W, H) + Math.hypot(x - W / 2, y - H / 2)) continue;
+    const spans = arcSpans(x, y, rr);
+    if (spans && !spans.length) continue;
     const on = lit?.rings.has(ring.id);
     ctx.globalAlpha = lit ? (on ? 0.55 : 0.04) : (b.depth === 0 ? 0.16 : 0.12);
     ctx.strokeStyle = colour(ring.color); ctx.lineWidth = on ? 1.3 : 0.8;
     ctx.setLineDash(ring.grp.folded ? [3, 4] : []);
-    ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.stroke();
+    if (spans && ring.grp.folded) for (const [a0, a1] of spans) { ctx.lineDashOffset = rr * a0; ctx.beginPath(); ctx.arc(x, y, rr, a0, a1); ctx.stroke(); }
+    else { ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.stroke(); }
+    ctx.lineDashOffset = 0;
   }
   ctx.setLineDash([]);
   /* edges: curved, like Sigma's curved edge program */
@@ -163,8 +242,7 @@ function draw(){
     ctx.strokeStyle = colour(l.color); ctx.lineWidth = on ? 2.4 : l.kind === "spoke" ? 0.9 : 1.1;
     ctx.setLineDash(l.kind === "spoke" ? (l.inh ? [3, 4] : []) : [5, 5]);
     const dx = bx - ax, dy = by - ay, bend = l.kind === "spoke" ? 0.1 : l.kind === "extra" ? 0.18 : 0.26;
-    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo((ax + bx) / 2 - dy * bend, (ay + by) / 2 + dx * bend, bx, by);
-    ctx.stroke();
+    strokeQuad(ax, ay, (ax + bx) / 2 - dy * bend, (ay + by) / 2 + dx * bend, bx, by, l.kind !== "spoke" || l.inh);
   }
   ctx.setLineDash([]);
   /* bodies that are folding away */
