@@ -150,13 +150,18 @@ function draw(){
   const onScreen = (x, y, r) => x + r > -40 && y + r > -40 && x - r < W + 40 && y - r < H + 40;
   /* orbits: hairlines, one per body */
   for (const b of O.order) for (const ring of b.rings) {
-    const x = X(b), y = Y(b), rr = ring.r * k;
+    const x = X(b), y = Y(b), rr = (ring.rd ?? ring.r) * k;
     if (rr < 1.5 || !onScreen(x, y, rr) || rr > 4 * Math.hypot(W, H) + Math.hypot(x - W / 2, y - H / 2)) continue;
     const on = lit?.rings.has(ring.id);
     ctx.globalAlpha = lit ? (on ? 0.3 : 0.025) : (b.depth === 0 ? 0.07 : 0.055);
     ctx.strokeStyle = colour(ring.color); ctx.lineWidth = on ? 1 : 0.6;
     ctx.setLineDash(ring.grp.folded ? [3, 4] : []);
-    ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.stroke();
+    /* an open body's own orbit stops at the edge of its system, so the line never runs through its moons */
+    const m = ring.members[0], mr = m.sysR ? (m.sysR + m.size) * k : 0, md = Math.hypot(X(m) - x, Y(m) - y);
+    ctx.beginPath();
+    if (mr > 2 && md > 0 && mr < 2 * rr) { const ma = Math.atan2(Y(m) - y, X(m) - x), hw = 2 * Math.asin(Math.min(1, mr / (2 * rr))); ctx.arc(x, y, rr, ma + hw, ma - hw + Math.PI * 2); }
+    else if (!(mr > 2 && mr >= 2 * rr)) ctx.arc(x, y, rr, 0, Math.PI * 2);
+    ctx.stroke();
   }
   ctx.setLineDash([]);
   /* edges: curved, like Sigma's curved edge program */
@@ -317,7 +322,7 @@ canvas.addEventListener("pointerdown", e => {
   canvas.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.offsetX, e.offsetY]);
   if (pts.size === 2) {
     const [p, q] = [...pts.values()]; A.pinch = { d:Math.hypot(p[0] - q[0], p[1] - q[1]), k:A.cam.k };
-    if (A.ptr?.dragging) A.ptr.body.dragging = false;
+    if (A.ptr?.dragging) { A.ptr.body.dragging = false; A.ptr.body.free = true; }
     A.ptr = null; canvas.classList.remove("grabbing"); return;
   }
   A.mslop = e.pointerType === "touch" ? 16 : 4;
@@ -350,7 +355,7 @@ function endPointer(e){
   if (pts.size < 2) A.pinch = null;
   const P = A.ptr; if (!P || P.id !== e.pointerId) return;
   A.ptr = null; canvas.classList.remove("grabbing");
-  if (P.dragging) { P.body.dragging = false; kick(); return; }
+  if (P.dragging) { P.body.dragging = false; P.body.free = true; kick(); return; }
   if (!P.moved && e.type === "pointerup") {
     if (P.body) {
       /* a double-click must not open and immediately fold the same body */
