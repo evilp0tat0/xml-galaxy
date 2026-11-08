@@ -590,8 +590,9 @@ canvas.addEventListener("keydown", e => {
   else if (e.key === "+" || e.key === "=") zoomAt(W / 2, H / 2, 1.25);
   else if (e.key === "-") zoomAt(W / 2, H / 2, 0.8);
   else if (e.key === "Enter" && A.sel) { const b = A.O.bodies.get(A.sel); if (b) clickBody(b); }
-  else if (e.key === "a") showAll();
-  else if (e.key === "c") foldAll();
+  /* a held key keeps zooming, but builds the whole map only once */
+  else if (e.key === "a" && !e.repeat) showAll();
+  else if (e.key === "c" && !e.repeat) foldAll();
 });
 
 /* ---------------- hover, tooltip, selection ---------------- */
