@@ -79,9 +79,21 @@ function strippedName(tag, hide = names.hide){
   s = s.replace(/^[_:.\-]+|[_:.\-]+$/g, "");
   return s || tag;
 }
+/* Each tag's name with the hidden parts taken out, kept until the parts change: a name is shown for every body, orbit and
+   search result, and taking the parts out sorts them and builds a pattern for each, every time. */
+let strippedFor = [], strippedMemo = new Map();
+function shownStripped(tag){
+  const h = names.hide;
+  let same = h.length === strippedFor.length;
+  for (let i = 0; same && i < h.length; i++) same = h[i] === strippedFor[i];
+  if (!same) { strippedFor = [...h]; strippedMemo = new Map(); }
+  let s = strippedMemo.get(tag);
+  if (s === undefined) strippedMemo.set(tag, s = strippedName(tag, h));
+  return s;
+}
 /* "S100FC: S100_FC_" or "a, b" → the separate parts; tag names never hold spaces or commas */
 names.parse = text => String(text || "").split(/[\s,]+/).filter(Boolean);
-names.show = tag => names.custom.get(tag) || strippedName(tag);
+names.show = tag => names.custom.get(tag) || shownStripped(tag);
 names.strip = strippedName;
 XO.names = names;
 const dn = tag => names.show(tag);
@@ -94,48 +106,59 @@ const REF_ATTR = n => /^(ref|href|idref|idrefs|target|refid|xref)$/i.test(n) || 
 
 function xmlSource(doc, fileName){
   const E = [];              /* index → element record */
-  const byEl = new Map();
-  /* iterative walk, so very deep files cannot overflow the stack; tags keep their prefix (a:item and b:item differ) */
-  (function walk(rootEl){
-    const stack = [[rootEl, null, 0]];
-    while (stack.length) {
-      const [el, parent, depth] = stack.pop();
-      const rec = { i:E.length, el, parent, depth, tag:el.nodeName, kids:[], desc:0 };
-      E.push(rec); byEl.set(el, rec);
-      if (parent) parent.kids.push(rec);
-      for (let c = el.lastElementChild; c; c = c.previousElementSibling) stack.push([c, rec, depth + 1]);
+  const tagCount = new Map(), ids = new Map(), refAttrs = [];
+  /* what an attribute's name says, worked out once per name rather than once per attribute: 1 an id, 2 a reference, 0 neither
+     (an id attribute is never a reference) */
+  const attrKinds = new Map();
+  const kindOf = n => { let k = attrKinds.get(n); if (k === undefined) { const ln = localOf(n); attrKinds.set(n, k = ID_ATTRS.has(n) || ln === "id" ? 1 : REF_ATTR(ln) ? 2 : 0); } return k; };
+  /* One walk in document order collects all that needs every element: its record, tag counts, ids and references.
+     It keeps no stack, so very deep files cannot overflow one; tags keep their prefix (a:item and b:item differ). */
+  for (let el = doc.documentElement, up = null; el; ) {
+    const r = { i:E.length, el, parent:up, depth:up ? up.depth + 1 : 0, tag:el.nodeName, kids:[], desc:0, key:null };
+    E.push(r); if (up) up.kids.push(r);
+    tagCount.set(r.tag, (tagCount.get(r.tag) || 0) + 1);
+    if (el.hasAttributes()) for (const n of el.getAttributeNames()) {
+      const kind = kindOf(n);
+      if (kind === 1) ids.set(el.getAttribute(n), r); else if (kind === 2) refAttrs.push(r, n, el.getAttribute(n));
     }
-    for (let i = E.length - 1; i > 0; i--) E[i].parent.desc += E[i].desc + 1;
-  })(doc.documentElement);
+    if (el.firstElementChild) { up = r; el = el.firstElementChild; continue; }
+    /* a leaf: on to its next sibling, or else the next sibling of the nearest ancestor that has one */
+    while (!(el = el.nextElementSibling) && up) { el = up.el; up = up.parent; }
+  }
+  for (let i = E.length - 1; i > 0; i--) E[i].parent.desc += E[i].desc + 1;
   const id = r => "e" + r.i;
   const rec = idv => E[+String(idv).slice(1)];
 
   /* colour per tag, most common tags get the most distinct colours */
-  const tagCount = new Map();
-  for (const r of E) tagCount.set(r.tag, (tagCount.get(r.tag) || 0) + 1);
   const tags = [...tagCount.keys()].sort((a, b) => tagCount.get(b) - tagCount.get(a));
   const cols = colours(tags.length);
   const palette = new Map(tags.map((t, i) => ["t:" + t, { color:cols[i], tag:t, get title(){ return "<" + dn(t) + ">"; }, count:tagCount.get(t) }]));
   palette.set("ref", { color:REF_COLOUR });
 
-  /* a short human name for an element: its tag plus a telling attribute or child */
+  /* A short human name for an element: its tag plus a telling attribute or child. Worked out when first asked for:
+     a big file has far more elements than are ever shown. */
   function keyOf(r){
+    if (r.key !== null) return r.key;
     const el = r.el;
-    for (const a of KEY_ATTRS) { const v = el.getAttribute(a); if (v) return v; }
-    for (const at of el.attributes) if (at.localName === "id" || at.localName === "name") return at.value;
-    for (const at of el.attributes) if (REF_ATTR(at.localName)) return "→ " + at.value.replace(/^#/, "");
-    for (const c of el.children) if (KEY_CHILDREN.includes(c.localName) && !c.children.length) { const v = c.textContent.trim(); if (v) return v; }
-    if (!el.children.length) { const v = el.textContent.trim(); if (v) return v; }
-    return "";
+    let k = "";
+    find: {
+      if (el.hasAttributes()) {
+        for (const a of KEY_ATTRS) { const v = el.getAttribute(a); if (v) { k = v; break find; } }
+        for (const at of el.attributes) if (at.localName === "id" || at.localName === "name") { k = at.value; break find; }
+        for (const at of el.attributes) if (REF_ATTR(at.localName)) { k = "→ " + at.value.replace(/^#/, ""); break find; }
+      }
+      if (!el.firstElementChild) { k = el.textContent.trim(); break find; }
+      for (let c = el.firstElementChild; c; c = c.nextElementSibling) if (KEY_CHILDREN.includes(c.localName) && !c.firstElementChild) { const v = c.textContent.trim(); if (v) { k = v; break find; } }
+    }
+    return r.key = k;
   }
-  for (const r of E) r.key = keyOf(r);
 
   /* The file's own name: the root's <…:name> child, or else the file name. It labels the centre. */
   const R0 = E[0];
   const nameRec = R0.kids.find(k => k.el.localName === "name" && !k.kids.length && k.el.textContent.trim());
   const fileTitle = nameRec ? nameRec.el.textContent.trim() : String(fileName || "").split(/[\\/]/).pop() || R0.tag;
   /* labels follow the chosen display names, so they are worked out each time */
-  const labelOf = r => r.depth === 0 ? fileTitle : r.key ? dn(r.tag) + " · " + clip(r.key, 40) : dn(r.tag);
+  const labelOf = r => { if (r.depth === 0) return fileTitle; const k = keyOf(r); return k ? dn(r.tag) + " · " + clip(k, 40) : dn(r.tag); };
 
   /* Header: the fields at the top of the file that describe it (name, scope, version, producer …).
      A text-only child of the root is one field; a small child with parts of its own (like producer) lists its text parts.
@@ -162,19 +185,55 @@ function xmlSource(doc, fileName){
     return out;
   }
 
-  /* id / idref links */
-  const ids = new Map();
-  for (const r of E) for (const at of r.el.attributes) if (ID_ATTRS.has(at.name) || at.localName === "id") ids.set(at.value, r);
+  /* id / idref links, in document order, now that every id is known */
   const out = new Map(), inn = new Map(), broken = new Map();
-  for (const r of E) for (const at of r.el.attributes) {
-    if (!REF_ATTR(at.localName) || ID_ATTRS.has(at.name)) continue;
-    for (const raw of at.value.split(/\s+/)) {
+  for (let j = 0; j < refAttrs.length; j += 3) {
+    const r = refAttrs[j], attr = refAttrs[j + 1];
+    for (const raw of refAttrs[j + 2].split(/\s+/)) {
       const v = raw.replace(/^#/, ""), t = ids.get(v);
       if (!v || t === r) continue;
-      if (!t) { (broken.get(r) || broken.set(r, []).get(r)).push({ attr:at.name, v }); continue; }
-      (out.get(r) || out.set(r, []).get(r)).push({ to:t, attr:at.name });
-      (inn.get(t) || inn.set(t, []).get(t)).push({ from:r, attr:at.name });
+      if (!t) { (broken.get(r) || broken.set(r, []).get(r)).push({ attr, v }); continue; }
+      (out.get(r) || out.set(r, []).get(r)).push({ to:t, attr });
+      (inn.get(t) || inn.set(t, []).get(t)).push({ from:r, attr });
     }
+  }
+  /* only needed while the file is read; the functions below keep this scope alive as long as the file is shown */
+  ids.clear(); attrKinds.clear(); refAttrs.length = 0;
+
+  /* Search: an element matches when its tag, its display name, its key or an attribute value (or, for the root, the file's
+     name) holds the query, ignoring case; the first 40 in document order are shown. Tags and their display names are
+     checked once per tag, so names the viewer changes are found at once. The rest of an element's text is lower-cased the
+     first time a search reaches it and kept, up to INDEX_MAX characters in all; elements past that are read from the
+     document each time, so a file of huge texts cannot use up memory. XML can never hold the
+     character \0, so it parts the fields: no match runs from one into the next, and lower-casing them together is the same
+     as one by one. */
+  const INDEX_MAX = 8e6, hay = [];
+  let hayLen = 0;
+  function textOf(r){
+    const h = hay[r.i];
+    if (h !== undefined || hayLen >= INDEX_MAX) return h ?? null;
+    const el = r.el;
+    let s = keyOf(r);
+    if (el.hasAttributes()) for (const n of el.getAttributeNames()) s += "\0" + el.getAttribute(n);
+    if (r.depth === 0) s += "\0" + fileTitle;
+    if ((hayLen += s.length) > INDEX_MAX) return null;
+    return hay[r.i] = s.toLowerCase();
+  }
+  function textHas(r, q){
+    const h = textOf(r);
+    if (h !== null) return h.includes(q);
+    if (keyOf(r).toLowerCase().includes(q) || (r.depth === 0 && fileTitle.toLowerCase().includes(q))) return true;
+    const el = r.el;
+    if (el.hasAttributes()) for (const n of el.getAttributeNames()) if (el.getAttribute(n).toLowerCase().includes(q)) return true;
+    return false;
+  }
+
+  /* for xpath(): each element's place among its same-tag siblings, and how many share its tag, counted once per parent
+     the first time one of its children needs a path (a parent can have thousands of children) */
+  function countSiblings(p){
+    if (p.same) return;
+    p.same = new Map();
+    for (const k of p.kids) { const n = (p.same.get(k.tag) || 0) + 1; p.same.set(k.tag, n); k.nth = n; }
   }
 
   /* Size on a 1–100 scale of direct children: the element with the most children in this file is 100,
@@ -190,7 +249,7 @@ function xmlSource(doc, fileName){
     groups(x){
       const r = rec(x); if (!r) return [];
       const by = new Map();
-      for (const k of r.kids) { if (!by.has(k.tag)) by.set(k.tag, []); by.get(k.tag).push(k); }
+      for (const k of r.kids) { let l = by.get(k.tag); if (!l) by.set(k.tag, l = []); l.push(k); }
       return [...by].map(([tag, ks]) => ({ key:"t:" + tag, title:"<" + dn(tag) + ">", color:"t:" + tag,
         entries:ks.map(k => ({ id:id(k) })) }));
     },
@@ -198,12 +257,11 @@ function xmlSource(doc, fileName){
     pathTo(x){ const c = []; for (let r = rec(x); r; r = r.parent) c.unshift(id(r)); return c; },
     search(q){
       q = q.trim().toLowerCase(); if (!q) return [];
-      const res = [];
-      for (const r of E) {
-        if (r.tag.toLowerCase().includes(q) || dn(r.tag).toLowerCase().includes(q) || r.key.toLowerCase().includes(q) || (r.depth === 0 && fileTitle.toLowerCase().includes(q))) res.push(r);
-        else for (const at of r.el.attributes) if (at.value.toLowerCase().includes(q)) { res.push(r); break; }
-        if (res.length >= 40) break;
-      }
+      /* the tags whose own name or display name holds the query */
+      const tagHit = new Map();
+      for (const t of tags) tagHit.set(t, t.toLowerCase().includes(q) || dn(t).toLowerCase().includes(q));
+      const text = !q.includes("\0"), res = [];
+      for (let i = 0; i < E.length && res.length < 40; i++) { const r = E[i]; if (tagHit.get(r.tag) || (text && textHas(r, q))) res.push(r); }
       return res.map(r => ({ id:id(r), label:labelOf(r), sub:xpath(r) }));
     },
     info(x){
@@ -211,7 +269,7 @@ function xmlSource(doc, fileName){
       const direct = [...r.el.childNodes].filter(n => n.nodeType === 3 || n.nodeType === 4).map(n => n.nodeValue).join("").trim();
       const kidTags = new Map(); for (const k of r.kids) kidTags.set(k.tag, (kidTags.get(k.tag) || 0) + 1);
       return {
-        kind:"Element <" + dn(r.tag) + ">" + (r.depth === 0 ? " · the root element" : ""), title:r.depth === 0 ? labelOf(r) : r.key || dn(r.tag), code:xpath(r), tag:r.tag,
+        kind:"Element <" + dn(r.tag) + ">" + (r.depth === 0 ? " · the root element" : ""), title:r.depth === 0 ? labelOf(r) : keyOf(r) || dn(r.tag), code:xpath(r), tag:r.tag,
         header:r.depth === 0 ? header() : null,
         def: direct ? clip(direct, 600) : "",
         attrs:[...r.el.attributes].map(a => [a.name, a.value]),
@@ -226,8 +284,8 @@ function xmlSource(doc, fileName){
   function xpath(r){
     const parts = [];
     for (let x = r; x; x = x.parent) {
-      const same = x.parent ? x.parent.kids.filter(k => k.tag === x.tag) : [x];
-      parts.unshift(dn(x.tag) + (same.length > 1 ? "[" + (same.indexOf(x) + 1) + "]" : ""));
+      const p = x.parent; if (p) countSiblings(p);
+      parts.unshift(dn(x.tag) + (p && p.same.get(x.tag) > 1 ? "[" + x.nth + "]" : ""));
     }
     return "/" + parts.join("/");
   }
