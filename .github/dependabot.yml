@@ -1,0 +1,11 @@
+# Keeps the actions in .github/workflows up to date: once a month, Dependabot opens
+# one pull request when any of them has a new version.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      github-actions:
+        patterns: ["*"]
