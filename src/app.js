@@ -203,11 +203,11 @@ function draw(){
     if (b.isOpen && b.depth > 0 && r > 2) { ctx.globalAlpha = on ? 0.6 : 0.15; ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(x, y, r + 3.5, 0, 7); ctx.stroke(); }
     if (b.id === A.hover || b.id === A.sel) { ctx.globalAlpha = b.id === A.sel ? 0.9 : 0.5; ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 4, 0, 7); ctx.stroke(); }
   }
-  /* search hit: a cyan pulse */
+  /* search hit: a cyan pulse; it ends when its time is up or its body is folded away, or the frame loop would never stop */
   const P = A.pulse, pb = P && O.bodies.get(P.id);
-  if (pb) {
+  if (P) {
     const t = (performance.now() - P.t0) / 1000;
-    if (t > 2.4) A.pulse = null;
+    if (!pb || t > 2.4) A.pulse = null;
     else {
       const x = X(pb), y = Y(pb), r = Math.max(pb.size * k * bodyScale(pb, lit), 3);
       for (let i = 0; i < 2; i++) { const p = ((t * 1.25 + i * 0.5) % 1); ctx.globalAlpha = (1 - p) * 0.9; ctx.strokeStyle = CYAN; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 4 + p * 26, 0, 7); ctx.stroke(); }
