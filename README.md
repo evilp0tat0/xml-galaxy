@@ -8,7 +8,9 @@ No build step, no install, no network at runtime (fonts fall back to system font
 
 ## Try it online
 
-Published to GitHub Pages from `main` by `.github/workflows/pages.yml`; the address is under Settings → Pages in the GitHub repository.
+<https://evilp0tat0.github.io/xml-orbitree/>
+
+`.github/workflows/pages.yml` publishes it to GitHub Pages on every push to `main`.
 
 ## Run it
 
@@ -24,7 +26,8 @@ On Windows, double-click **`start.bat`**. It starts a small local server with th
 
 | Do this | To |
 |---|---|
-| **Open XML…**, drop a file, or paste XML anywhere | load a file (nothing leaves the browser) |
+| **Open XML**, drop a file, or paste XML anywhere | load a file (nothing leaves the browser) |
+| **Examples** menu | open one of the bundled example files |
 | Hover the centre | see the file's header fields (scope, version, date, product, producer …) |
 | Click a body (the centre too) | centre it (the camera follows it) |
 | Click it again | show all its child elements, spread out; once more to fold them |
@@ -34,7 +37,8 @@ On Windows, double-click **`start.bat`**. It starts a small local server with th
 | Type in the search box | find an element; choosing it opens every body on the way and flies there |
 | **Display names** box | type a part of the name you don't want to see (for example `S100_FC_` or `S100FC:`) and press **Hide**: it is taken out of every name, so `S100FC:S100_FC_DefinitionSources` shows as `DefinitionSources`. Hidden parts show as chips; × shows a part again. Or select an element and rename its tag. Only the display changes, never the file; choices are remembered in this browser |
 | Scroll / pinch, drag empty space, double-click empty space | zoom, pan, fit |
-| Keys on the map: `f` fit, space pause, `+` `-` zoom, `Esc` deselect; `Ctrl K` or `/` search | |
+| Buttons at the bottom right | zoom in, zoom out, fit, fold every orbit back into one circle, pause or play the orbits |
+| Keys on the map | `f` fit, space pause, `+` `-` zoom, `Esc` deselect, `Enter` show or fold the selected body's child elements; `Ctrl K` (`⌘K` on a Mac) or `/` search |
 
 Colours: body, line and orbit colour is the element's tag (see the colour key). Every tag name gets its own colour: a high-contrast set first, then more colours picked to be as different as possible from all the others. Dashed cyan lines are id references (`ref`, `href`, `xlink:href="#…"`, `idref`, `…Ref`) to elements already on the map.
 
