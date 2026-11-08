@@ -116,7 +116,7 @@ function xmlSource(doc, fileName){
   const tags = [...tagCount.keys()].sort((a, b) => tagCount.get(b) - tagCount.get(a));
   const cols = colours(tags.length);
   const palette = new Map(tags.map((t, i) => ["t:" + t, { color:cols[i], tag:t, get title(){ return "<" + dn(t) + ">"; }, count:tagCount.get(t) }]));
-  palette.set("ref", { color:REF_COLOUR, title:"Points to (id reference)" });
+  palette.set("ref", { color:REF_COLOUR });
 
   /* a short human name for an element: its tag plus a telling attribute or child */
   function keyOf(r){
@@ -185,16 +185,16 @@ function xmlSource(doc, fileName){
   return {
     palette, total:E.length, rootId:id(E[0]), title:fileTitle, header,
     tagOf: x => rec(x)?.tag || "",
-    node(x){ const r = rec(x); return r && { id:x, label:labelOf(r), color:"t:" + r.tag, size:size(r), kind:"<" + dn(r.tag) + ">", tag:r.tag, kids:r.kids.length }; },
+    node(x){ const r = rec(x); return r && { id:x, label:labelOf(r), color:"t:" + r.tag, size:size(r), kind:"<" + dn(r.tag) + ">", kids:r.kids.length }; },
     canOpen: x => { const r = rec(x); return !!r && r.kids.length > 0; },
     groups(x){
       const r = rec(x); if (!r) return [];
       const by = new Map();
       for (const k of r.kids) { if (!by.has(k.tag)) by.set(k.tag, []); by.get(k.tag).push(k); }
       return [...by].map(([tag, ks]) => ({ key:"t:" + tag, title:"<" + dn(tag) + ">", color:"t:" + tag,
-        entries:ks.map(k => ({ id:id(k), short:"", label:"child <" + dn(tag) + ">" })) }));
+        entries:ks.map(k => ({ id:id(k) })) }));
     },
-    refs(x){ const r = rec(x); return (out.get(r) || []).map(o => ({ to:id(o.to), color:"ref", short:"@" + o.attr, label:o.attr + " → " + labelOf(o.to) })); },
+    refs(x){ const r = rec(x); return (out.get(r) || []).map(o => ({ to:id(o.to), color:"ref", short:"@" + o.attr })); },
     pathTo(x){ const c = []; for (let r = rec(x); r; r = r.parent) c.unshift(id(r)); return c; },
     search(q){
       q = q.trim().toLowerCase(); if (!q) return [];
