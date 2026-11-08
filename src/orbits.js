@@ -1,8 +1,8 @@
 /* The orbit engine. Who orbits whom is fixed by the source and never changes;
    where a body is right now is physics: it springs toward its spot on its parent's orbit,
    can be dragged away, and drifts back when let go. Its moons follow it wherever it goes.
-   Each level down is drawn at half the scale of the one above, so deep files stay a bounded size:
-   zoom in (or select a body) to read its moons. */
+   Bodies keep their own size at every depth (the source sets flatSize), and orbits still clear each body's
+   whole system. Without flatSize each level down is drawn at half the scale of the one above. */
 (function(){
 "use strict";
 const XO = window.XO;
@@ -13,7 +13,8 @@ const MAX_UNFOLDED = 48;                 /* more children than this and the bigg
 class Orbits {
   constructor(src){
     this.src = src;
-    this.open = new Set([src.rootId]);  /* bodies whose own orbits are shown */
+    /* bodies whose own orbits are shown; a plain XML file starts as one closed circle */
+    this.open = new Set(src.startOpen === false ? [] : [src.rootId]);
     this.spread = new Set();            /* folded groups the user has spread out */
     this.t = 0;
     this.bodies = new Map();            /* id → body; kept across rebuilds so positions carry over */
@@ -52,14 +53,14 @@ class Orbits {
       for (const { g, fresh, gid, fold } of plan) {
         const members = [];
         if (fold) {
-          const gb = mk(gid, { type:"group", label:g.title, color:g.color, size:(n.depth ? 11 : 14) * u, count:fresh.length, ids:new Set(fresh.map(f => f.id)) },
+          const gb = mk(gid, { type:"group", label:g.title, color:g.color, size:src.flatSize ? 10 : (n.depth ? 11 : 14) * u, count:fresh.length, ids:new Set(fresh.map(f => f.id)) },
             { depth:n.depth + 1, parent:n });
           for (const f of fresh) claimed.set(f.id, gb);
           members.push(gb);
           links.push({ id:"s|" + gid, a:n, b:gb, color:g.color, kind:"spoke" });
         } else for (const e of fresh) {
           const nd = src.node(e.id); if (!nd) continue;
-          const b = mk(e.id, nd, { type:"body", depth:n.depth + 1, parent:n, size:Math.max(1.2 * u, nd.size * u * (n.depth === 0 ? 1 : 0.85)) });
+          const b = mk(e.id, nd, { type:"body", depth:n.depth + 1, parent:n, size:src.flatSize ? nd.size : Math.max(1.2 * u, nd.size * u * (n.depth === 0 ? 1 : 0.85)) });
           members.push(b); q.push(b);
           links.push({ id:"s|" + e.id, a:n, b, color:g.color, short:e.short, label:e.label, kind:"spoke" });
         }
@@ -77,7 +78,15 @@ class Orbits {
     for (let i = order.length - 1; i >= 0; i--) this.layoutNode(order[i]);
     for (const [id, b] of prev) if (!next.has(id)) this.ghosts.push({ x:b.x, y:b.y, size:b.size, color:b.color, to:b.parent && next.get(b.parent.id) || null, life:1 });
     if (this.ghosts.length > 400) this.ghosts.splice(0, this.ghosts.length - 400);
-    for (const b of order) if (b.fresh) { const p = b.parent; b.x = p ? p.x : 0; b.y = p ? p.y : 0; b.fresh = false; }
+    for (const b of order) {
+      const p = b.parent;
+      if (b.fresh) { b.x = p ? p.x : 0; b.y = p ? p.y : 0; b.fresh = false; }
+      /* a body already on the map keeps its place on its orbit, even if the orbit is now a different one */
+      else if (p && b.ring && !b.free && !b.dragging) b.a0 = Math.atan2(b.y - p.y, b.x - p.x) - b.ring.speed * b.ring.dir * this.t;
+    }
+    /* orbits grow (or shrink) smoothly from where their body is now, so the whole map widens together
+       and a newly spread system never cuts across its neighbours on the way */
+    for (const b of order) for (const ring of b.rings) { const m = ring.members[0]; ring.rd = Math.hypot(m.x - b.x, m.y - b.y); }
     this.bodies = next; this.order = order; this.links = links; this.root = root;
     return this;
   }
@@ -107,11 +116,19 @@ class Orbits {
     let moving = 0;
     for (const b of this.order) {
       if (!b.parent || !b.ring) { b.ax = 0; b.ay = 0; }
-      else { const a = b.a0 + b.ring.speed * b.ring.dir * this.t; b.ang = a; b.ax = b.parent.x + Math.cos(a) * b.ring.r; b.ay = b.parent.y + Math.sin(a) * b.ring.r; }
+      else {
+        const R = b.ring; if (R.rd == null) R.rd = R.r;
+        R.rd += (R.r - R.rd) * f; if (Math.abs(R.r - R.rd) < 1e-6 * R.r) R.rd = R.r; else moving = Math.max(moving, 1);
+        const a = b.a0 + R.speed * R.dir * this.t; b.ang = a; b.ax = b.parent.x + Math.cos(a) * R.rd; b.ay = b.parent.y + Math.sin(a) * R.rd;
+      }
       if (b.dragging) continue;
+      /* bodies ride exactly on their orbit; only one let go after a drag drifts back to it */
+      if (!b.free) { b.x = b.ax; b.y = b.ay; continue; }
       const dx = b.ax - b.x, dy = b.ay - b.y;
       b.x += dx * f; b.y += dy * f;
-      moving = Math.max(moving, (Math.abs(dx) + Math.abs(dy)) / Math.max(0.05, b.size));
+      const off = (Math.abs(dx) + Math.abs(dy)) / Math.max(0.05, b.size);
+      if (off < 0.01) b.free = false;
+      moving = Math.max(moving, off);
     }
     for (const g of this.ghosts) { g.life -= dt * 3; if (g.to) { g.x += (g.to.x - g.x) * f; g.y += (g.to.y - g.y) * f; } }
     this.ghosts = this.ghosts.filter(g => g.life > 0);
@@ -129,8 +146,10 @@ class Orbits {
     }
     return true;
   }
+  /* how far the map reaches once every orbit has grown to its full size (the layout knows this up front) */
   extent(){
     let R = 120;
+    if (this.root) R = Math.max(R, this.root.size + (this.root.sysR || 0));
     for (const b of this.order) { const v = Math.hypot(b.ax ?? b.x, b.ay ?? b.y) + b.size; if (isFinite(v)) R = Math.max(R, v); }
     return R;
   }
