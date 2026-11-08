@@ -8,11 +8,11 @@ const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const SAMPLE = "samples/S-201_FC_OpenS100_draft.xml";
 
 const canvas = $("sky"), ctx = canvas.getContext("2d");
-const A = { doc:null, FC:null, fileName:"", mode:"tree", src:null, O:null, playing:!REDUCED,
+const A = { src:null, O:null, playing:!REDUCED,
   cam:{ x:0, y:0, k:1 }, camTo:null, follow:null, followK:null, hover:null, sel:null, ptr:null, pinch:null, userLoaded:false };
 
 /* ---------------- colours ---------------- */
-const colour = key => key === "miss" ? "#ef4444" : (A.src?.palette.get(key)?.color || "#6b7280");
+const colour = key => A.src?.palette.get(key)?.color || "#6b7280";
 const CYAN = "#06b6d4";
 const glowCache = new Map();
 function glowSprite(col){
@@ -33,7 +33,7 @@ function resize(){
 }
 /* the free part of the screen: below the top bar, left of the side panel */
 function freeArea(){
-  const tabs = $("modes"), top = (tabs.hidden ? $("top") : tabs).getBoundingClientRect().bottom + 8;
+  const top = $("top").getBoundingClientRect().bottom + 8;
   const side = $("side"), sr = side.hidden ? null : side.getBoundingClientRect();
   const right = sr && W > 760 ? sr.left - 56 : W - 56;
   const bottom = sr && W <= 760 ? sr.top - 8 : $("foot").getBoundingClientRect().top - 8;
@@ -165,8 +165,8 @@ function draw(){
     if (Math.hypot(bx - ax, by - ay) < 1) continue;
     ctx.globalAlpha = lit ? (on ? 0.95 : 0.04) : (l.kind === "spoke" ? 0.32 : 0.45);
     ctx.strokeStyle = colour(l.color); ctx.lineWidth = on ? 2.4 : l.kind === "spoke" ? 0.9 : 1.1;
-    ctx.setLineDash(l.kind === "spoke" ? (l.inh ? [3, 4] : []) : [5, 5]);
-    const dx = bx - ax, dy = by - ay, bend = l.kind === "spoke" ? 0.1 : l.kind === "extra" ? 0.18 : 0.26;
+    ctx.setLineDash(l.kind === "spoke" ? [] : [5, 5]);
+    const dx = bx - ax, dy = by - ay, bend = l.kind === "spoke" ? 0.1 : 0.26;
     ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo((ax + bx) / 2 - dy * bend, (ay + by) / 2 + dx * bend, bx, by);
     ctx.stroke();
   }
@@ -189,7 +189,6 @@ function draw(){
       ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.setLineDash([3, 2.5]); ctx.stroke(); ctx.setLineDash([]);
     } else {
       ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
-      if (b.abstract) { ctx.fillStyle = "#06060a"; ctx.beginPath(); ctx.arc(x, y, r * 0.55, 0, 7); ctx.fill(); }
     }
     if (b.isOpen && b.depth > 0 && r > 2) { ctx.globalAlpha = on ? 0.6 : 0.15; ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(x, y, r + 3.5, 0, 7); ctx.stroke(); }
     if (b.id === A.hover || b.id === A.sel) { ctx.globalAlpha = b.id === A.sel ? 0.9 : 0.5; ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 4, 0, 7); ctx.stroke(); }
@@ -207,7 +206,7 @@ function draw(){
   ctx.globalAlpha = 1;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   drawLabels(lit);
-  $("status").textContent = A.src ? `${O.order.filter(b => b.type !== "group").length} of ${A.src.total.toLocaleString()} ${A.src.mode === "tree" ? "elements" : "types"} shown · ${O.order.reduce((s, b) => s + b.rings.length, 0)} orbits` : "";
+  $("status").textContent = A.src ? `${O.order.filter(b => b.type !== "group").length} of ${A.src.total.toLocaleString()} elements shown · ${O.order.reduce((s, b) => s + b.rings.length, 0)} orbits` : "";
   $("zoomPct").textContent = A.src ? `zoom ${Math.round(c.k * 100)}%` : "";
 }
 const S = (b) => [A.cam.x + A.cam.k * b.x, A.cam.y + A.cam.k * b.y];
@@ -375,11 +374,11 @@ function setHover(b, e){
 }
 function hideTip(){ $("tip").hidden = true; }
 function chainText(b){
-  return A.O.chainOf(b).map((x, i) => (i ? `<span class="s">→ ${esc(hopText(x, 40))} →</span> ` : "") + `<b>${esc(clip(x.label, 34))}</b>`).join(" ");
+  return A.O.chainOf(b).map((x, i) => (i ? `<span class="s">→ ${esc(hopText(x))} →</span> ` : "") + `<b>${esc(clip(x.label, 34))}</b>`).join(" ");
 }
-/* how a body hangs off its parent: the kind of link (catalogue) or its tag (plain XML) */
-function hopText(x, n){ return A.src.mode === "links" ? clip(x.via?.label || x.ring?.grp.title || "", n) : (x.type === "group" ? x.label : x.kind || ""); }
-const hopColour = x => A.src.mode === "links" ? colour(x.ring?.color) : colour(x.color);
+/* how a body hangs off its parent: its tag */
+function hopText(x){ return x.type === "group" ? x.label : x.kind || ""; }
+const hopColour = x => colour(x.color);
 function tipHtml(b){
   const n = A.src.node(b.id), kind = b.type === "group" ? `${b.count} × ${esc(b.label)} (folded)` : esc(n?.kind || "");
   const act = b.type === "group" ? "Click to spread them into a full orbit" : b.parent && A.src.canOpen(b.id) ? (b.isOpen ? "Click to fold its orbits" : "Click to open its own orbits") : "";
@@ -390,7 +389,7 @@ function tipHtml(b){
 function placeTip(b){
   const tip = $("tip"), [sx, sy] = S(b), rr = b.size * A.cam.k + 6, w = tip.offsetWidth, h = tip.offsetHeight;
   const avoid = [{ x0:sx - rr, y0:sy - rr, x1:sx + rr, y1:sy + rr, wt:1000 }];
-  for (const el of [$("top"), $("side"), $("legend"), $("modes"), $("ctrls"), $("foot")]) if (el && !el.hidden) { const r = el.getBoundingClientRect(); avoid.push({ x0:r.left, y0:r.top, x1:r.right, y1:r.bottom, wt:30 }); }
+  for (const el of [$("top"), $("side"), $("legend"), $("ctrls"), $("foot")]) if (el && !el.hidden) { const r = el.getBoundingClientRect(); avoid.push({ x0:r.left, y0:r.top, x1:r.right, y1:r.bottom, wt:30 }); }
   const lit = litSet();
   if (lit) for (const id of lit.nodes) { const n = A.O.bodies.get(id); if (n && n !== b) { const [x, y] = S(n); avoid.push({ x0:x - 14, y0:y - 14, x1:x + 14, y1:y + 14, wt:4 }); } }
   const base = b.parent ? Math.atan2(b.y - b.parent.y, b.x - b.parent.x) : Math.PI / 4;
@@ -432,10 +431,8 @@ function rebuildAndKeep(){ A.O.build(); const s = A.O.bodies.get(A.sel); if (s) 
 function renderSide(b){
   const side = $("side"), info = b.type === "group" ? null : A.src.info(b.id), O = A.O;
   const chain = O.chainOf(b);
-  const chainHtml = chain.map((x, i) => (i ? `<span class="hop"><span class="dot" style="background:${hopColour(x)}"></span>${esc(hopText(x, 44))} →</span>` : "")
+  const chainHtml = chain.map((x, i) => (i ? `<span class="hop"><span class="dot" style="background:${hopColour(x)}"></span>${esc(hopText(x))} →</span>` : "")
     + (x === b ? `<span class="chip here">${esc(clip(x.label, 30))}</span>` : `<button type="button" class="chip" data-sel="${esc(x.id)}">${esc(clip(x.label, 30))}</button>`)).join(" ");
-  const seenX = new Set();
-  const cross = O.links.filter(l => { if (l.kind === "spoke" || (l.a !== b && l.b !== b)) return false; const k = (l.a === b ? l.b.id : l.a.id) + "|" + l.color; if (seenX.has(k)) return false; seenX.add(k); return true; });
   const parts = [];
   const col = colour(b.color);
   parts.push(`<div class="kind"><span class="dot" style="background:${col};box-shadow:0 0 8px ${col}"></span>${esc(b.type === "group" ? "Folded group" : info?.kind || "")}</div>`);
@@ -450,7 +447,6 @@ function renderSide(b){
   if (info?.linksOut?.length) parts.push(`<div><h3>Points to</h3><div class="list">${info.linksOut.slice(0, 30).map(o => linkRow(o.id, o.text, o.color)).join("")}</div></div>`);
   if (info?.broken?.length) parts.push(`<div><h3>Broken references</h3><div class="list">${info.broken.slice(0, 20).map(t => `<div class="it" style="color:var(--danger)">${esc(t)}</div>`).join("")}</div></div>`);
   if (info?.linksIn?.length) parts.push(`<div><h3>Pointed at by</h3><div class="list">${info.linksIn.slice(0, 30).map(o => linkRow(o.id, o.text, o.color)).join("")}</div></div>`);
-  if (cross.length && A.src.mode === "links") parts.push(`<div><h3>Also linked (dashed lines)</h3><div class="list">${cross.slice(0, 20).map(l => { const o = l.a === b ? l.b : l.a; return linkRow(o.id, (A.src.palette.get(l.color)?.title || "") + ": " + o.label, l.color); }).join("")}</div></div>`);
   const acts = [];
   if (b.type === "group") acts.push(`<button class="btn primary" type="button" data-act="spread">Spread into a full orbit</button>`);
   else if (b.parent && A.src.canOpen(b.id)) acts.push(`<button class="btn primary" type="button" data-act="toggle">${b.isOpen ? "Fold its orbits" : "Open its own orbits"}</button>`);
@@ -469,11 +465,9 @@ $("side").addEventListener("click", e => {
 
 /* ---------------- find ---------------- */
 function reveal(id){
-  const path = A.src.pathTo(id);
-  if (!path) { note(A.src.mode === "links" ? "That is not reachable as an orbit from this sun. Use “Make it the centre” to start from it." : "That element is not in this file."); return; }
-  A.O.reveal(path); A.O.build();
+  A.O.reveal(A.src.pathTo(id)); A.O.build();
   const b = A.O.bodies.get(id);
-  if (!b) { note("It sits inside a body that is already on the map; look for the dashed line."); return; }
+  if (!b) { note("That element is not in this file."); return; }
   select(b); followBody(b, true); A.pulse = { id:b.id, t0:performance.now() };
   if (b.parent) A.followK = Math.min(1e5, Math.max(A.followK || A.cam.k, 8 / Math.max(1e-4, b.size)));
 }
@@ -491,43 +485,45 @@ function showResults(){
   const box = $("results"), q = $("q").value;
   if (!A.src || !q.trim()) { box.hidden = true; box.innerHTML = ""; return; }
   const res = A.src.search(q); resIdx = -1;
-  box.innerHTML = res.length ? res.map(r => `<div><button type="button" data-r="${esc(r.id)}"><span class="l">${esc(r.label)}</span><span class="s">${esc(r.sub)}</span></button>${r.canCentre ? `<div class="row" style="padding:0 8px 4px"><button type="button" data-centre="${esc(r.id)}">Make it the centre</button></div>` : ""}</div>`).join("") : `<div class="empty">Nothing matches “${esc(q)}”.</div>`;
+  box.innerHTML = res.length ? res.map(r => `<div><button type="button" data-r="${esc(r.id)}"><span class="l">${esc(r.label)}</span><span class="s">${esc(r.sub)}</span></button></div>`).join("") : `<div class="empty">Nothing matches “${esc(q)}”.</div>`;
   box.hidden = false;
 }
 $("results").addEventListener("click", e => {
-  const r = e.target.closest("button[data-r]"), c = e.target.closest("button[data-centre]");
-  if (c) { setSource(XO.sources.catalogueSource(A.FC, c.dataset.centre, A.fileName)); }
-  else if (r) reveal(r.dataset.r);
+  const r = e.target.closest("button[data-r]");
+  if (r) reveal(r.dataset.r);
   $("results").hidden = true; $("q").blur();
 });
 
 /* ---------------- loading ---------------- */
 function note(msg){ const t = $("tip"); t.innerHTML = `<b>${esc(msg)}</b>`; t.hidden = false; t.style.left = Math.max(8, W / 2 - 150) + "px"; t.style.top = ($("top").getBoundingClientRect().bottom + 10) + "px"; clearTimeout(note.t); note.t = setTimeout(hideTip, 3500); }
-function bestStart(FC){
-  const F = XO.fc;
-  const score = it => (it.fbind?.length || 0) + (it.ibind?.length || 0) + it.incoming.length + it.subtypes.length + (it.attrs?.length || 0) / 4;
-  const pool = FC.items.filter(i => i.kind === "ft" && !i.abstract);
-  return F.keyOf((pool.length ? pool : FC.items).slice().sort((a, b) => score(b) - score(a))[0]);
+/* Bytes to text. Byte-order marks and UTF-16 come first; then valid UTF-8 wins even when the declaration
+   says otherwise (files are often mislabelled); then the declared encoding, else Windows-1252. */
+function decode(buf){
+  const u = new Uint8Array(buf, 0, Math.min(4, buf.byteLength));
+  if (u[0] === 0xFF && u[1] === 0xFE) return new TextDecoder("utf-16le").decode(buf);
+  if (u[0] === 0xFE && u[1] === 0xFF) return new TextDecoder("utf-16be").decode(buf);
+  if (u[0] === 0x3C && u[1] === 0) return new TextDecoder("utf-16le").decode(buf);
+  if (u[0] === 0 && u[1] === 0x3C) return new TextDecoder("utf-16be").decode(buf);
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(buf); } catch {}
+  const head = new TextDecoder("latin1").decode(new Uint8Array(buf.slice(0, 300)));
+  const m = /encoding\s*=\s*["']([A-Za-z0-9._-]+)["']/.exec(head);
+  try { return new TextDecoder(m ? m[1] : "windows-1252").decode(buf); } catch { return new TextDecoder("utf-8").decode(buf); }
 }
 function setSource(src){
   A.src = src; A.O = new XO.Orbits(src); A.sel = null; A.hover = null; A.follow = null; A.followK = null;
   $("side").hidden = true; hideTip();
   /* open the first few levels until there is a fair amount to look at */
-  if (src.mode === "tree") {
-    for (let guard = 0; guard < 60; guard++) {
-      A.O.build();
-      if (A.O.order.length > 40) break;
-      const next = A.O.order.find(b => b.type !== "group" && !A.O.open.has(b.id) && src.canOpen(b.id) && b.depth < 2);
-      if (!next) break;
-      A.O.open.add(next.id);
-    }
+  for (let guard = 0; guard < 60; guard++) {
+    A.O.build();
+    if (A.O.order.length > 40) break;
+    const next = A.O.order.find(b => b.type !== "group" && !A.O.open.has(b.id) && src.canOpen(b.id) && b.depth < 2);
+    if (!next) break;
+    A.O.open.add(next.id);
   }
   A.O.build();
   for (let i = 0; i < 90; i++) A.O.step(1 / 30, false);
   renderLegend();
-  $("modeLinks").setAttribute("aria-pressed", src.mode === "links"); $("modeTree").setAttribute("aria-pressed", src.mode === "tree");
-  $("q").placeholder = src.mode === "links" ? "Search types…" : "Search elements…";
-  $("ready").textContent = src.mode === "links" ? "Catalogue · by meaning" : "XML tree";
+  $("ready").textContent = "XML tree";
   requestAnimationFrame(() => fit(false));
 }
 function loadText(text, name){
@@ -536,12 +532,7 @@ function loadText(text, name){
   const perr = doc.getElementsByTagNameNS("http://www.w3.org/1999/xhtml", "parsererror")[0];
   if (perr || !doc.documentElement) throw new Error("This is not well-formed XML. " + ((perr?.querySelector("div") || perr)?.textContent || "").trim().slice(0, 200));
   /* work everything out first, so a failure leaves the current map untouched */
-  let FC = XO.fc.isCatalogue(doc) ? XO.fc.parseFC(doc, name) : null;
-  if (FC && !FC.items.length) FC = null;
-  const src = FC ? XO.sources.catalogueSource(FC, bestStart(FC), name) : XO.sources.xmlSource(doc, name);
-  A.doc = doc; A.fileName = name; A.FC = FC;
-  const isFC = !!FC;
-  $("modes").hidden = !isFC;
+  const src = XO.sources.xmlSource(doc, name);
   const f = $("file"); f.hidden = false;
   f.className = "pill" + (name.startsWith("samples/") ? " warn" : "");
   f.textContent = name.startsWith("samples/") ? "Example: " + name.slice(8).replace(/_/g, " ").replace(/\.xml$/, "") : name;
@@ -552,13 +543,13 @@ function loadText(text, name){
 let loadSeq = 0;
 async function loadFile(file){
   A.userLoaded = true; loadSeq++;
-  try { const buf = await file.arrayBuffer(); loadText(XO.fc.decode(buf), file.name); }
+  try { const buf = await file.arrayBuffer(); loadText(decode(buf), file.name); }
   catch (err) { showErr("Could not open " + file.name + ": " + err.message); }
 }
 function showErr(msg){ if (A.src) note(msg); else { $("welcome").hidden = false; $("err").textContent = msg; $("err").hidden = false; } }
 async function loadSample(url = SAMPLE){
   const my = ++loadSeq;
-  try { const r = await fetch(url); if (!r.ok) throw new Error("HTTP " + r.status); const buf = await r.arrayBuffer(); if (A.userLoaded || my !== loadSeq) return; loadText(XO.fc.decode(buf), url); }
+  try { const r = await fetch(url); if (!r.ok) throw new Error("HTTP " + r.status); const buf = await r.arrayBuffer(); if (A.userLoaded || my !== loadSeq) return; loadText(decode(buf), url); }
   catch (err) {
     if (my !== loadSeq) return;
     if (A.src) { note(location.protocol === "file:" ? "Examples need this folder served (./serve.sh). Open a file instead." : "Could not load the example: " + err.message); return; }
@@ -568,19 +559,11 @@ async function loadSample(url = SAMPLE){
 /* ---------------- legend ---------------- */
 function renderLegend(){
   const src = A.src, out = [];
-  if (src.mode === "links") {
-    out.push(`<h4>Orbits and lines: how it links to the body it circles</h4>`);
-    for (const [k, v] of src.palette) if (k.startsWith("c:")) out.push(`<div class="k"><i style="background:${v.color}"></i>${esc(v.title)}</div>`);
-    out.push(`<h4>Bodies: what the item is</h4>`);
-    for (const [k, v] of src.palette) if (k.startsWith("k:")) out.push(`<div class="k"><b style="background:${v.color};color:${v.color}"></b>${esc(v.title)}</div>`);
-    out.push(`<div class="k"><i style="background:repeating-linear-gradient(90deg,#94a3b8 0 5px,transparent 5px 9px)"></i>Also linked to a body elsewhere</div>`);
-  } else {
-    out.push(`<h4>Orbit, line and body colour: the element's tag</h4>`);
-    const tags = [...src.palette].filter(([k]) => k.startsWith("t:"));
-    for (const [, v] of tags.slice(0, 16)) out.push(`<div class="k"><b style="background:${v.color};color:${v.color}"></b>${esc(v.title)}<em>${v.count}</em></div>`);
-    if (tags.length > 16) out.push(`<div class="k" style="color:var(--faint)">… and ${tags.length - 16} more tags</div>`);
-    out.push(`<div class="k"><i style="background:repeating-linear-gradient(90deg,#e2e8f0 0 5px,transparent 5px 9px)"></i>id reference (ref, href, idref…)</div>`);
-  }
+  out.push(`<h4>Orbit, line and body colour: the element's tag</h4>`);
+  const tags = [...src.palette].filter(([k]) => k.startsWith("t:"));
+  for (const [, v] of tags.slice(0, 16)) out.push(`<div class="k"><b style="background:${v.color};color:${v.color}"></b>${esc(v.title)}<em>${v.count}</em></div>`);
+  if (tags.length > 16) out.push(`<div class="k" style="color:var(--faint)">… and ${tags.length - 16} more tags</div>`);
+  out.push(`<div class="k"><i style="background:repeating-linear-gradient(90deg,#e2e8f0 0 5px,transparent 5px 9px)"></i>id reference (ref, href, idref…)</div>`);
   out.push(`<p>Click a body to open its own orbits; click again to fold them. A dashed circle with a number is a folded group: click it to spread it out. Drag a body to pull it about; it drifts back to its orbit. Hover to light up the chain back to the centre.</p>`);
   $("legendBody").innerHTML = out.join("");
 }
@@ -601,8 +584,6 @@ document.addEventListener("keydown", e => {
 $("play").addEventListener("click", () => setPlay(!A.playing));
 $("fit").addEventListener("click", () => fit(true));
 $("foldAll").addEventListener("click", () => { if (!A.O) return; A.O.open = new Set([A.src.rootId]); A.O.spread.clear(); select(null); A.O.build(); setTimeout(() => fit(true), 250); kick(); });
-$("modeLinks").addEventListener("click", () => { if (A.FC && A.src.mode !== "links") setSource(XO.sources.catalogueSource(A.FC, bestStart(A.FC), A.fileName)); });
-$("modeTree").addEventListener("click", () => { if (A.doc && A.src.mode !== "tree") setSource(XO.sources.xmlSource(A.doc, A.fileName)); });
 for (const id of ["openBtn", "openBtn2"]) $(id).addEventListener("click", () => $("fileIn").click());
 $("sampleBtn").addEventListener("click", () => { A.userLoaded = false; loadSample(); });
 $("examples").addEventListener("change", e => { const u = e.target.value; e.target.value = ""; if (u) { A.userLoaded = false; loadSample(u); } });
