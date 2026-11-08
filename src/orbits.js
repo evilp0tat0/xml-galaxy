@@ -136,6 +136,16 @@ class Orbits {
 
   chainOf(b){ const c = []; for (let x = b; x; x = x.parent) c.unshift(x); return c; }
 
+  /* Show every element: open every body that has children and spread every group, so nothing stays folded. */
+  openAll(){
+    const src = this.src, q = [src.rootId];
+    for (let qi = 0; qi < q.length; qi++) {
+      const id = q[qi];
+      if (!src.canOpen(id)) continue;
+      this.open.add(id);
+      for (const g of src.groups(id)) { this.spread.add(id + ">" + g.key); for (const e of g.entries) q.push(e.id); }
+    }
+  }
   /* Open every body on the way (and spread any folded group that hides the next step). */
   reveal(path){
     for (let i = 0; i < path.length - 1; i++) {
