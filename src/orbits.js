@@ -21,8 +21,8 @@ class Orbits {
   }
   collapseAt(depth){ return depth === 0 ? 16 : 10; }
 
-  /* Breadth-first from the centre, so an item linked from several bodies sits with the one nearest the centre;
-     the others get a dashed cross link to it instead of a copy. Items hidden in a folded group count as placed. */
+  /* Breadth-first from the centre. An item that already has a body gets a dashed line to it instead of a copy;
+     items hidden in a folded group count as placed. */
   build(){
     const src = this.src, prev = this.bodies, next = new Map(), claimed = new Map(), order = [], links = [];
     const mk = (id, base, extra) => {
@@ -48,7 +48,7 @@ class Orbits {
           /* already placed in another of this body's groups: that one is the body, this is an extra line to it */
           if (planned.has(e.id)) { later.push({ e, g }); continue; }
           const ex = next.get(e.id) || claimed.get(e.id);
-          if (ex) { if (ex !== n) links.push({ id:`x|${n.id}|${e.id}|${g.key}`, a:n, b:ex, color:g.color, short:e.short, label:e.label, inh:e.inherited, kind:ex.parent === n ? "extra" : "cross" }); continue; }
+          if (ex) { if (ex !== n) links.push({ id:`x|${n.id}|${e.id}|${g.key}`, a:n, b:ex, color:g.color, short:e.short, label:e.label, kind:ex.parent === n ? "extra" : "cross" }); continue; }
           fresh.push(e); planned.add(e.id);
         }
         if (fresh.length) plan.push({ g, fresh, gid:n.id + ">" + g.key, fold:false });
@@ -71,9 +71,9 @@ class Orbits {
           links.push({ id:"s|" + gid, a:n, b:gb, color:g.color, kind:"spoke" });
         } else for (const e of fresh) {
           const nd = src.node(e.id); if (!nd) continue;
-          const b = mk(e.id, nd, { type:"body", depth:n.depth + 1, parent:n, size:Math.max(1.2 * u, nd.size * u * (n.depth === 0 ? 1 : 0.85)), via:{ color:g.color, short:e.short, label:e.label, inh:e.inherited } });
+          const b = mk(e.id, nd, { type:"body", depth:n.depth + 1, parent:n, size:Math.max(1.2 * u, nd.size * u * (n.depth === 0 ? 1 : 0.85)), via:{ color:g.color, short:e.short, label:e.label } });
           members.push(b); q.push(b);
-          links.push({ id:"s|" + e.id, a:n, b, color:g.color, short:e.short, label:e.label, inh:e.inherited, kind:"spoke" });
+          links.push({ id:"s|" + e.id, a:n, b, color:g.color, short:e.short, label:e.label, kind:"spoke" });
         }
         if (!members.length) continue;
         /* every body gets an orbit of its own; bodies from one group sit on neighbouring orbits */
@@ -82,7 +82,7 @@ class Orbits {
       }
       for (const { e, g } of later) {
         const t = next.get(e.id) || claimed.get(e.id);
-        if (t && t !== n) links.push({ id:`x|${n.id}|${e.id}|${g.key}`, a:n, b:t, color:g.color, short:e.short, label:e.label, inh:e.inherited, kind:"extra" });
+        if (t && t !== n) links.push({ id:`x|${n.id}|${e.id}|${g.key}`, a:n, b:t, color:g.color, short:e.short, label:e.label, kind:"extra" });
       }
     }
     for (const r of order) for (const ref of (src.refs ? src.refs(r.id) : [])) {
