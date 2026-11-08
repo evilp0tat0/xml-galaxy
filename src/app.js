@@ -1,4 +1,4 @@
-/* XML Galaxy: drawing, camera and interaction. */
+/* Drawing, camera and interaction. */
 (function(){
 "use strict";
 const XO = window.XO, clip = XO.clip;
@@ -8,7 +8,7 @@ const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const SAMPLE = "samples/S-201_FC_OpenS100_draft.xml";
 
 const canvas = $("sky"), ctx = canvas.getContext("2d");
-const A = { src:null, O:null, playing:!REDUCED,
+const A = { doc:null, src:null, O:null, playing:!REDUCED,
   cam:{ x:0, y:0, k:1 }, camTo:null, follow:null, followK:null, hover:null, sel:null, ptr:null, pinch:null, userLoaded:false };
 
 /* ---------------- colours ---------------- */
@@ -33,11 +33,11 @@ function resize(){
 }
 /* the free part of the screen: below the top bar, left of the side panel */
 function freeArea(){
-  const top = $("top").getBoundingClientRect().bottom + 8;
+  const top = Math.max(...["top", "rootLine"].map(id => $(id)).filter(el => !el.hidden).map(el => el.getBoundingClientRect().bottom)) + 8;
   const side = $("side"), sr = side.hidden ? null : side.getBoundingClientRect();
   const right = sr && W > 760 ? sr.left - 56 : W - 56;
   const bottom = sr && W <= 760 ? sr.top - 8 : $("foot").getBoundingClientRect().top - 8;
-  const lg = $("legend"), left = lg.open && W > 1100 ? Math.min(lg.getBoundingClientRect().right + 8, W * 0.3) : 8;
+  const lc = $("leftcol"), left = ($("legend").open || $("namesBox").open) && W > 760 ? Math.min(lc.getBoundingClientRect().right + 8, W * 0.4) : 8;
   return { x0:left, y0:top, x1:right, y1:Math.max(top + 80, bottom) };
 }
 
@@ -95,7 +95,7 @@ function followBody(b, zoomToSystem){
   if (zoomToSystem) {
     const fa = freeArea();
     /* a body with no orbits of its own: show it with its neighbourhood, not filling the screen */
-    const R = b.sysR ? (b.sysR + b.size) * 1.15 + 6 : b.size * 12;
+    const R = b.sysR ? (b.sysR + b.size) * 1.15 + b.size * 0.5 : b.size * 12;
     A.followK = Math.max(0.05, Math.min(1e5, Math.min(fa.x1 - fa.x0, fa.y1 - fa.y0) / (2 * R)));
   }
   kick();
@@ -118,9 +118,10 @@ function litSet(){
 }
 
 /* ---------------- drawing ---------------- */
-const MONO = '500 11px "JetBrains Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace';
-const MONO_S = '500 10.5px "JetBrains Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace';
-const SUN = '600 13px "JetBrains Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace';
+const MONO = '500 12px "Exo 2", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+const MONO_S = '500 11.5px "Exo 2", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+const SUN = '700 13px Orbitron, "Exo 2", system-ui, sans-serif';
+const COUNT_FONT = fs => `700 ${fs}px Orbitron, "Exo 2", system-ui, sans-serif`;
 const widths = new Map();
 function textW(t, font){ const k = font + "|" + t; let w = widths.get(k); if (w == null) { ctx.font = font; w = ctx.measureText(t).width; widths.set(k, w); if (widths.size > 6000) widths.clear(); } return w; }
 
@@ -149,13 +150,18 @@ function draw(){
   const onScreen = (x, y, r) => x + r > -40 && y + r > -40 && x - r < W + 40 && y - r < H + 40;
   /* orbits: hairlines, one per body */
   for (const b of O.order) for (const ring of b.rings) {
-    const x = X(b), y = Y(b), rr = ring.r * k;
+    const x = X(b), y = Y(b), rr = (ring.rd ?? ring.r) * k;
     if (rr < 1.5 || !onScreen(x, y, rr) || rr > 4 * Math.hypot(W, H) + Math.hypot(x - W / 2, y - H / 2)) continue;
     const on = lit?.rings.has(ring.id);
-    ctx.globalAlpha = lit ? (on ? 0.55 : 0.04) : (b.depth === 0 ? 0.16 : 0.12);
-    ctx.strokeStyle = colour(ring.color); ctx.lineWidth = on ? 1.3 : 0.8;
+    ctx.globalAlpha = lit ? (on ? 0.3 : 0.025) : (b.depth === 0 ? 0.07 : 0.055);
+    ctx.strokeStyle = colour(ring.color); ctx.lineWidth = on ? 1 : 0.6;
     ctx.setLineDash(ring.grp.folded ? [3, 4] : []);
-    ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.stroke();
+    /* an open body's own orbit stops at the edge of its system, so the line never runs through its moons */
+    const m = ring.members[0], mr = m.sysR ? (m.sysR + m.size) * k : 0, md = Math.hypot(X(m) - x, Y(m) - y);
+    ctx.beginPath();
+    if (mr > 2 && md > 0 && mr < 2 * rr) { const ma = Math.atan2(Y(m) - y, X(m) - x), hw = 2 * Math.asin(Math.min(1, mr / (2 * rr))); ctx.arc(x, y, rr, ma + hw, ma - hw + Math.PI * 2); }
+    else if (!(mr > 2 && mr >= 2 * rr)) ctx.arc(x, y, rr, 0, Math.PI * 2);
+    ctx.stroke();
   }
   ctx.setLineDash([]);
   /* edges: curved, like Sigma's curved edge program */
@@ -175,7 +181,8 @@ function draw(){
   for (const g of O.ghosts) { const x = X(g), y = Y(g), r = g.size * k * g.life; if (r < 0.3 || !onScreen(x, y, r)) continue; ctx.globalAlpha = Math.max(0, g.life) * 0.6 * (lit ? 0.2 : 1); ctx.fillStyle = colour(g.color); ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); }
   /* bodies */
   for (const b of O.order) {
-    const x = X(b), y = Y(b), r = Math.max(b.size * k * bodyScale(b, lit), 1.2);
+    const n = b.type === "group" ? b.count : b.kids || 0;
+    const x = X(b), y = Y(b), r = Math.max(b.size * k * bodyScale(b, lit), n > 0 ? countR(n) : 1.2);
     if (!onScreen(x, y, r * 3)) continue;
     const on = !lit || lit.nodes.has(b.id), col = colour(b.color);
     if (b.depth === 0 || b.id === A.sel || (lit && b.id === lit.d.id)) {
@@ -187,8 +194,11 @@ function draw(){
     if (b.type === "group") {
       ctx.fillStyle = "#101018"; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
       ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.setLineDash([3, 2.5]); ctx.stroke(); ctx.setLineDash([]);
+      drawCount(n, x, y, r, "#f5f5f7");
     } else {
       ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+      /* how many direct child elements it has; nothing when it has none */
+      drawCount(n, x, y, r, XO.sources.inkFor(col));
     }
     if (b.isOpen && b.depth > 0 && r > 2) { ctx.globalAlpha = on ? 0.6 : 0.15; ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(x, y, r + 3.5, 0, 7); ctx.stroke(); }
     if (b.id === A.hover || b.id === A.sel) { ctx.globalAlpha = b.id === A.sel ? 0.9 : 0.5; ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 4, 0, 7); ctx.stroke(); }
@@ -210,6 +220,17 @@ function draw(){
   $("zoomPct").textContent = A.src ? `zoom ${Math.round(c.k * 100)}%` : "";
 }
 const S = (b) => [A.cam.x + A.cam.k * b.x, A.cam.y + A.cam.k * b.y];
+/* the smallest on-screen radius that still holds a number of this many digits */
+const countR = n => Math.max(5.5, String(n).length * 2.4 + 1.5);
+function drawCount(n, x, y, r, ink){
+  if (!(n > 0)) return;
+  const t = String(n);
+  let fs = Math.round(Math.min(16, Math.max(7, r * (t.length > 2 ? 0.62 : 0.85))));
+  let font = COUNT_FONT(fs);
+  while (fs > 7 && textW(t, font) > r * 2) { fs--; font = COUNT_FONT(fs); }
+  ctx.font = font; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = ink;
+  ctx.fillText(t, x, y + 0.5); ctx.textAlign = "left";
+}
 
 /* Labels are placed most important first; one that would overlap a placed label tries other sides, then is skipped. */
 function drawLabels(lit){
@@ -217,7 +238,7 @@ function drawLabels(lit){
   const free = r => { if (r.x < -50 || r.y < -20 || r.x > W + 50 || r.y > H + 20) return false; for (const p of placed) if (r.x < p.x + p.w && r.x + r.w > p.x && r.y < p.y + p.h && r.y + r.h > p.y) return false; return true; };
   const pill = (x, y, w, h, stroke, lw = 1) => { ctx.fillStyle = "#12121c"; ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.beginPath(); ctx.roundRect(x, y, w, h, 4); ctx.fill(); ctx.stroke(); };
   /* bodies' circles block labels too, so names never sit on top of a planet */
-  for (const b of O.order) { const [x, y] = S(b), r = b.size * k * bodyScale(b, lit); if (r > 3) placed.push({ x:x - r, y:y - r, w:2 * r, h:2 * r }); }
+  for (const b of O.order) { const [x, y] = S(b), n = b.type === "group" ? b.count : b.kids || 0, r = Math.max(b.size * k * bodyScale(b, lit), n > 0 ? countR(n) : 0); if (r > 3) placed.push({ x:x - r, y:y - r, w:2 * r, h:2 * r }); }
   const cands = [];
   for (const b of O.order) {
     const on = lit?.nodes.has(b.id);
@@ -231,7 +252,8 @@ function drawLabels(lit){
   /* the sun's name sits under it */
   ctx.textBaseline = "middle";
   for (const [, b] of cands) {
-    const [x, y] = S(b), r = b.size * k * bodyScale(b, lit), hot = lit?.nodes.has(b.id), main = lit && b.id === lit.d.id;
+    const cn = b.type === "group" ? b.count : b.kids || 0;
+    const [x, y] = S(b), r = Math.max(b.size * k * bodyScale(b, lit), cn > 0 ? countR(cn) : 0), hot = lit?.nodes.has(b.id), main = lit && b.id === lit.d.id;
     if (b.depth === 0) {
       const t = clip(b.label, 40), w = textW(t, SUN) + 18, h = 24;
       const rect = { x:x - w / 2, y:y + r + 8, w, h };
@@ -287,7 +309,8 @@ function hit(sx, sy, slop = 4){
   const O = A.O; if (!O) return null;
   let best = null, bd = Infinity;
   for (const b of O.order) {
-    const [x, y] = S(b), r = Math.max(b.size * A.cam.k, 6) + slop, d = Math.hypot(x - sx, y - sy);
+    const n = b.type === "group" ? b.count : b.kids || 0;
+    const [x, y] = S(b), r = Math.max(b.size * A.cam.k, 6, n > 0 ? countR(n) : 0) + slop, d = Math.hypot(x - sx, y - sy);
     if (d < r && d < bd) { best = b; bd = d; }
   }
   return best;
@@ -298,7 +321,7 @@ canvas.addEventListener("pointerdown", e => {
   canvas.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.offsetX, e.offsetY]);
   if (pts.size === 2) {
     const [p, q] = [...pts.values()]; A.pinch = { d:Math.hypot(p[0] - q[0], p[1] - q[1]), k:A.cam.k };
-    if (A.ptr?.dragging) A.ptr.body.dragging = false;
+    if (A.ptr?.dragging) { A.ptr.body.dragging = false; A.ptr.body.free = true; }
     A.ptr = null; canvas.classList.remove("grabbing"); return;
   }
   A.mslop = e.pointerType === "touch" ? 16 : 4;
@@ -331,7 +354,7 @@ function endPointer(e){
   if (pts.size < 2) A.pinch = null;
   const P = A.ptr; if (!P || P.id !== e.pointerId) return;
   A.ptr = null; canvas.classList.remove("grabbing");
-  if (P.dragging) { P.body.dragging = false; kick(); return; }
+  if (P.dragging) { P.body.dragging = false; P.body.free = true; kick(); return; }
   if (!P.moved && e.type === "pointerup") {
     if (P.body) {
       /* a double-click must not open and immediately fold the same body */
@@ -370,7 +393,7 @@ function setHover(b, e){
   if (id === A.hover) return;
   A.hover = id; kick();
   if (!b) { hideTip(); return; }
-  const tip = $("tip"); tip.innerHTML = tipHtml(b); tip.hidden = false; placeTip(b);
+  const tip = $("tip"); tip.innerHTML = tipHtml(b); tip.classList.toggle("wide", !b.parent); tip.hidden = false; placeTip(b);
 }
 function hideTip(){ $("tip").hidden = true; }
 function chainText(b){
@@ -379,17 +402,24 @@ function chainText(b){
 /* how a body hangs off its parent: its tag */
 function hopText(x){ return x.type === "group" ? x.label : x.kind || ""; }
 const hopColour = x => colour(x.color);
+const canToggle = b => b.type !== "group" && A.src.canOpen(b.id);
+function headerHtml(h, max = 12, per = 8){
+  if (!h?.length) return "";
+  const rows = h.slice(0, max).map(f => `<dt${f.items ? ' class="grp"' : ""}>${esc(f.key)}</dt><dd${f.items ? ' class="grp"' : ""}>${f.items ? f.items.slice(0, per).map(i => `<div><span class="s">${esc(i.key)}:</span> ${esc(clip(i.value, 120))}</div>`).join("") + (f.items.length > per ? `<div class="s">… ${f.items.length - per} more</div>` : "") : esc(clip(f.value, 160))}</dd>`).join("");
+  return `<dl class="hdr">${rows}</dl>` + (h.length > max ? `<div class="c">… and ${h.length - max} more fields</div>` : "");
+}
 function tipHtml(b){
   const n = A.src.node(b.id), kind = b.type === "group" ? `${b.count} × ${esc(b.label)} (folded)` : esc(n?.kind || "");
-  const act = b.type === "group" ? "Click to spread them into a full orbit" : b.parent && A.src.canOpen(b.id) ? (b.isOpen ? "Click to fold its orbits" : "Click to open its own orbits") : "";
+  const act = b.type === "group" ? "Click to spread them into a full orbit" : A.sel !== b.id ? "Click to centre it" + (canToggle(b) ? "; click again to show its child elements" : "") : canToggle(b) ? (b.isOpen ? "Click again to fold its child elements" : "Click again to show its child elements") : "";
   const cross = A.O.links.filter(l => l.kind !== "spoke" && (l.a === b || l.b === b)).length;
-  return `<b>${esc(b.type === "group" ? b.label : b.label)}</b><span class="s">${kind}</span>${b.parent ? `<div class="c">${chainText(b)}</div>` : ""}${cross ? `<div class="c">${cross} more link${cross === 1 ? "" : "s"} (dashed)</div>` : ""}${act ? `<div class="c">${act}</div>` : ""}`;
+  const head = !b.parent && A.src.header ? headerHtml(A.src.header()) : "";
+  return `<b>${esc(b.label)}</b><span class="s">${kind}</span>${head}${b.parent ? `<div class="c">${chainText(b)}</div>` : ""}${cross ? `<div class="c">${cross} more link${cross === 1 ? "" : "s"} (dashed)</div>` : ""}${act ? `<div class="c">${act}</div>` : ""}`;
 }
 /* Try spots all round the body; keep the one covering least of it, its lit neighbours and the panels. */
 function placeTip(b){
   const tip = $("tip"), [sx, sy] = S(b), rr = b.size * A.cam.k + 6, w = tip.offsetWidth, h = tip.offsetHeight;
   const avoid = [{ x0:sx - rr, y0:sy - rr, x1:sx + rr, y1:sy + rr, wt:1000 }];
-  for (const el of [$("top"), $("side"), $("legend"), $("ctrls"), $("foot")]) if (el && !el.hidden) { const r = el.getBoundingClientRect(); avoid.push({ x0:r.left, y0:r.top, x1:r.right, y1:r.bottom, wt:30 }); }
+  for (const el of [$("top"), $("side"), $("leftcol"), $("rootLine"), $("ctrls"), $("foot")]) if (el && !el.hidden) { const r = el.getBoundingClientRect(); avoid.push({ x0:r.left, y0:r.top, x1:r.right, y1:r.bottom, wt:30 }); }
   const lit = litSet();
   if (lit) for (const id of lit.nodes) { const n = A.O.bodies.get(id); if (n && n !== b) { const [x, y] = S(n); avoid.push({ x0:x - 14, y0:y - 14, x1:x + 14, y1:y + 14, wt:4 }); } }
   const base = b.parent ? Math.atan2(b.y - b.parent.y, b.x - b.parent.x) : Math.PI / 4;
@@ -407,6 +437,7 @@ function placeTip(b){
 }
 function select(b){
   A.sel = b ? b.id : null;
+  renderRename();
   if (!b) { A.follow = null; $("side").hidden = true; kick(); return; }
   renderSide(b); kick();
 }
@@ -417,10 +448,21 @@ function clickBody(b){
     O.spread.add(b.id); O.build();
     const p = O.bodies.get(b.parent.id); select(p); followBody(p, true); return;
   }
+  /* first click: centre it; the next click shows its children */
+  if (A.sel !== b.id) { select(b); followBody(b, false); return; }
+  toggleOpen(b);
+}
+/* show every child of b, spread out (no folded groups), or fold them again */
+function toggleOpen(b){
+  const O = A.O;
   let opened = false;
-  if (b.parent && A.src.canOpen(b.id)) {
-    if (O.open.has(b.id)) O.open.delete(b.id); else { O.open.add(b.id); opened = true; }
-    O.build();
+  if (canToggle(b)) {
+    if (O.open.has(b.id)) O.open.delete(b.id);
+    else {
+      O.open.add(b.id); opened = true;
+      for (const g of A.src.groups(b.id)) O.spread.add(b.id + ">" + g.key);
+    }
+    O.build(); O.step(0, false);
   }
   const nb = O.bodies.get(b.id);
   select(nb); followBody(nb, opened);
@@ -439,6 +481,7 @@ function renderSide(b){
   parts.push(`<h2>${esc(b.type === "group" ? `${b.count} × ${b.label}` : info?.title || b.label)}</h2>`);
   if (info?.code) parts.push(`<div class="code">${esc(info.code)}</div>`);
   if (b.parent) parts.push(`<div class="box"><h3>Where it comes from</h3><div class="chain">${chainHtml}</div></div>`);
+  if (info?.header?.length) parts.push(`<div class="box"><h3>About this file</h3>${headerHtml(info.header, 60, 40)}</div>`);
   if (info?.def) parts.push(`<p>${esc(info.def)}</p>`);
   if (info?.facts?.length) parts.push(`<div class="tags">${info.facts.map(f => `<span class="tag">${esc(f)}</span>`).join("")}</div>`);
   if (info?.attrs?.length) parts.push(`<div><h3>Attributes</h3><dl class="attrs">${info.attrs.slice(0, 40).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(clip(v, 200))}</dd>`).join("")}</dl></div>`);
@@ -447,9 +490,10 @@ function renderSide(b){
   if (info?.linksOut?.length) parts.push(`<div><h3>Points to</h3><div class="list">${info.linksOut.slice(0, 30).map(o => linkRow(o.id, o.text, o.color)).join("")}</div></div>`);
   if (info?.broken?.length) parts.push(`<div><h3>Broken references</h3><div class="list">${info.broken.slice(0, 20).map(t => `<div class="it" style="color:var(--danger)">${esc(t)}</div>`).join("")}</div></div>`);
   if (info?.linksIn?.length) parts.push(`<div><h3>Pointed at by</h3><div class="list">${info.linksIn.slice(0, 30).map(o => linkRow(o.id, o.text, o.color)).join("")}</div></div>`);
+  if (info?.tag) parts.push(`<div class="ren">${renameForm(info.tag, "renameSide")}</div>`);
   const acts = [];
   if (b.type === "group") acts.push(`<button class="btn primary" type="button" data-act="spread">Spread into a full orbit</button>`);
-  else if (b.parent && A.src.canOpen(b.id)) acts.push(`<button class="btn primary" type="button" data-act="toggle">${b.isOpen ? "Fold its orbits" : "Open its own orbits"}</button>`);
+  else if (canToggle(b)) acts.push(`<button class="btn primary" type="button" data-act="toggle">${b.isOpen ? "Fold its child elements" : "Show its child elements"}</button>`);
   acts.push(`<button class="btn" type="button" data-act="close">Close</button>`);
   parts.push(`<div class="acts">${acts.join("")}</div>`);
   side.innerHTML = parts.join(""); side.hidden = false; side.dataset.id = b.id;
@@ -460,7 +504,8 @@ $("side").addEventListener("click", e => {
   if (t.dataset.sel) { const n = A.O.bodies.get(t.dataset.sel); if (n) { select(n); followBody(n, false); canvas.focus({ preventScroll:true }); } }
   else if (t.dataset.find) reveal(t.dataset.find);
   else if (t.dataset.act === "close") select(null);
-  else if (b && (t.dataset.act === "toggle" || t.dataset.act === "spread")) clickBody(b);
+  else if (b && t.dataset.act === "toggle") toggleOpen(b);
+  else if (b && t.dataset.act === "spread") clickBody(b);
 });
 
 /* ---------------- find ---------------- */
@@ -495,7 +540,7 @@ $("results").addEventListener("click", e => {
 });
 
 /* ---------------- loading ---------------- */
-function note(msg){ const t = $("tip"); t.innerHTML = `<b>${esc(msg)}</b>`; t.hidden = false; t.style.left = Math.max(8, W / 2 - 150) + "px"; t.style.top = ($("top").getBoundingClientRect().bottom + 10) + "px"; clearTimeout(note.t); note.t = setTimeout(hideTip, 3500); }
+function note(msg){ const t = $("tip"); t.classList.remove("wide"); t.innerHTML = `<b>${esc(msg)}</b>`; t.hidden = false; t.style.left = Math.max(8, W / 2 - 150) + "px"; t.style.top = ($("top").getBoundingClientRect().bottom + 10) + "px"; clearTimeout(note.t); note.t = setTimeout(hideTip, 3500); }
 /* Bytes to text. Byte-order marks and UTF-16 come first; then valid UTF-8 wins even when the declaration
    says otherwise (files are often mislabelled); then the declared encoding, else Windows-1252. */
 function decode(buf){
@@ -512,17 +557,10 @@ function decode(buf){
 function setSource(src){
   A.src = src; A.O = new XO.Orbits(src); A.sel = null; A.hover = null; A.follow = null; A.followK = null;
   $("side").hidden = true; hideTip();
-  /* open the first few levels until there is a fair amount to look at */
-  for (let guard = 0; guard < 60; guard++) {
-    A.O.build();
-    if (A.O.order.length > 40) break;
-    const next = A.O.order.find(b => b.type !== "group" && !A.O.open.has(b.id) && src.canOpen(b.id) && b.depth < 2);
-    if (!next) break;
-    A.O.open.add(next.id);
-  }
+  /* a plain XML file starts as one circle, the root element named after the file; click it to see its children */
   A.O.build();
   for (let i = 0; i < 90; i++) A.O.step(1 / 30, false);
-  renderLegend();
+  renderLegend(); renderNames();
   $("ready").textContent = "XML tree";
   requestAnimationFrame(() => fit(false));
 }
@@ -533,10 +571,14 @@ function loadText(text, name){
   if (perr || !doc.documentElement) throw new Error("This is not well-formed XML. " + ((perr?.querySelector("div") || perr)?.textContent || "").trim().slice(0, 200));
   /* work everything out first, so a failure leaves the current map untouched */
   const src = XO.sources.xmlSource(doc, name);
+  A.doc = doc;
+  $("rootLine").hidden = false; renderRootLine();
   const f = $("file"); f.hidden = false;
   f.className = "pill" + (name.startsWith("samples/") ? " warn" : "");
   f.textContent = name.startsWith("samples/") ? "Example: " + name.slice(8).replace(/_/g, " ").replace(/\.xml$/, "") : name;
   f.title = name;
+  /* the heading and the browser tab carry the file's own name */
+  const h = $("docTitle"); h.textContent = src.title; h.title = src.title; document.title = src.title;
   $("welcome").hidden = true;
   setSource(src);
 }
@@ -563,10 +605,130 @@ function renderLegend(){
   const tags = [...src.palette].filter(([k]) => k.startsWith("t:"));
   for (const [, v] of tags.slice(0, 16)) out.push(`<div class="k"><b style="background:${v.color};color:${v.color}"></b>${esc(v.title)}<em>${v.count}</em></div>`);
   if (tags.length > 16) out.push(`<div class="k" style="color:var(--faint)">… and ${tags.length - 16} more tags</div>`);
-  out.push(`<div class="k"><i style="background:repeating-linear-gradient(90deg,#e2e8f0 0 5px,transparent 5px 9px)"></i>id reference (ref, href, idref…)</div>`);
-  out.push(`<p>Click a body to open its own orbits; click again to fold them. A dashed circle with a number is a folded group: click it to spread it out. Drag a body to pull it about; it drifts back to its orbit. Hover to light up the chain back to the centre.</p>`);
+  out.push(`<div class="k"><i style="background:repeating-linear-gradient(90deg,${colour("ref")} 0 5px,transparent 5px 9px)"></i>id reference (ref, href, idref…)</div>`);
+  out.push(`<p>Click a circle to centre it; click it again to show all its child elements; once more to fold them. A dashed circle with a number is a folded group: click it to spread it out. Drag a body to pull it about; it drifts back to its orbit. Hover to light up the chain back to the centre.</p>`);
   $("legendBody").innerHTML = out.join("");
 }
+
+/* ---------------- display names ---------------- */
+const NAMES_KEY = "xml-viewer.names";
+(function loadNames(){
+  try {
+    const v = JSON.parse(localStorage.getItem(NAMES_KEY) || "null");
+    if (v && Array.isArray(v.hide)) XO.names.hide = [...new Set(v.hide.filter(p => typeof p === "string" && p.trim()).map(p => p.trim()))];
+    if (v && v.custom) for (const [k, n] of Object.entries(v.custom)) if (typeof n === "string" && n.trim()) XO.names.custom.set(k, n.trim());
+  } catch {}
+})();
+/* the explanations in the Display names box: shown unless the viewer hides them */
+const INFO_KEY = "xml-viewer.namesInfo";
+function setNamesInfo(on){
+  document.body.classList.toggle("ninfo-off", !on);
+  for (const b of document.querySelectorAll('button[data-nact="info"]')) { b.textContent = on ? "Hide info" : "Show info"; b.setAttribute("aria-pressed", on); }
+  try { localStorage.setItem(INFO_KEY, on ? "on" : "off"); } catch {}
+}
+try { setNamesInfo(localStorage.getItem(INFO_KEY) !== "off"); } catch { setNamesInfo(true); }
+function saveNames(){ try { localStorage.setItem(NAMES_KEY, JSON.stringify({ hide:XO.names.hide, custom:Object.fromEntries(XO.names.custom) })); } catch {} }
+/* the tags of this file, root first */
+function fileTags(){
+  const tags = A.src ? [...A.src.palette.values()].filter(v => v.tag).map(v => v.tag) : [];
+  if (A.doc) tags.unshift(A.doc.documentElement.nodeName);
+  return [...new Set(tags)];
+}
+function renderRootLine(){
+  if (!A.doc) return;
+  const rt = A.doc.documentElement.nodeName, shown = XO.names.show(rt);
+  $("rootTag").textContent = shown; $("rootLine").title = "Root element: " + shown + (shown !== rt ? " (in the file: " + rt + ")" : "");
+}
+function renderNames(){
+  renderRootLine();
+  renderHide();
+  renderRename();
+}
+/* the hidden parts, each a chip with a × to show it again */
+function renderHide(){
+  const N = XO.names, tags = fileTags();
+  $("hideParts").innerHTML = N.hide.map((p, i) => {
+    const n = tags.filter(t => t.toLowerCase().includes(p.toLowerCase())).length;
+    const t = A.doc ? `Hidden in ${n} tag${n === 1 ? "" : "s"} of this file` : "Hidden";
+    return `<span class="hpart" title="${esc(t)}"><s>${esc(p)}</s><button type="button" data-unhide="${i}" aria-label="Show ${esc(p)} again" title="Show it again">×</button></span>`;
+  }).join("") + (N.hide.length > 1 ? `<button class="link" type="button" data-unhide="all">Show all again</button>` : "");
+  renderHidePreview();
+}
+/* a before → after line, using what is typed in the box too, so the effect shows before pressing Hide */
+function renderHidePreview(){
+  const N = XO.names, typed = N.parse($("hideIn").value), parts = [...N.hide, ...typed], tags = fileTags();
+  const hit = t => parts.some(p => t.toLowerCase().includes(p.toLowerCase()));
+  const t = typed.length ? tags.find(t => typed.some(p => t.toLowerCase().includes(p.toLowerCase()))) : tags.find(hit);
+  const el = $("hidePreview");
+  if (!t) { el.innerHTML = typed.length && A.doc ? `No name in this file has “${esc(typed.join(" "))}”.` : ""; el.title = ""; return; }
+  const after = N.strip(t, parts);
+  el.innerHTML = `${esc(t)} → <b>${esc(after)}</b>`; el.title = "Example from this file: " + t + " → " + after;
+}
+function addHidden(){
+  const N = XO.names, inp = $("hideIn"), add = N.parse(inp.value).filter(p => !N.hide.some(h => h.toLowerCase() === p.toLowerCase()));
+  inp.value = "";
+  if (!add.length) { renderHidePreview(); return; }
+  N.hide.push(...add);
+  applyNames();
+  inp.focus();
+}
+$("hideAdd").addEventListener("click", addHidden);
+$("hideIn").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addHidden(); } });
+$("hideIn").addEventListener("input", renderHidePreview);
+$("hideParts").addEventListener("click", e => {
+  const b = e.target.closest("button[data-unhide]"); if (!b) return;
+  e.stopPropagation();
+  const N = XO.names;
+  if (b.dataset.unhide === "all") N.hide = []; else N.hide.splice(+b.dataset.unhide, 1);
+  applyNames();
+  $("hideIn").focus();
+});
+function selectedTag(){
+  const b = A.sel && A.O?.bodies.get(A.sel);
+  return b && b.type !== "group" ? A.src.tagOf(b.id) : "";
+}
+function renameForm(tag, inputId){
+  const N = XO.names, n = A.src.palette.get("t:" + tag)?.count || 1, cur = N.custom.get(tag) || "", shown = N.show(tag);
+  const isRoot = A.doc && tag === A.doc.documentElement.nodeName;
+  const help = `Shown for every element with this tag${n > 1 ? " (" + n.toLocaleString() + " in this file)" : ""}. Leave empty to go back to the name with hidden parts taken out.${isRoot ? " The centre circle keeps the file's own name." : ""}`;
+  return `<div class="lbl" title="${esc(shown !== tag ? "In the file: <" + tag + ">" : "")}">Rename <b>&lt;${esc(shown)}&gt;</b>${n > 1 ? ` · ${n.toLocaleString()}×` : ""}</div>
+    <div class="row"><input id="${inputId}" data-tag="${esc(tag)}" type="text" value="${esc(cur)}" placeholder="${esc(N.strip(tag))}" title="${esc(help)}" aria-label="New display name for ${esc(shown)}" autocomplete="off"><button class="btn primary" type="button" data-nact="save">Save</button>${cur ? `<button class="btn" type="button" data-nact="reset" title="Back to the name with hidden parts taken out">Reset</button>` : ""}</div>
+    <p class="ninfo">${shown !== tag ? `In the file: &lt;${esc(tag)}&gt;. ` : ""}${esc(help)}</p>`;
+}
+function renderRename(){
+  const box = $("renameArea"), N = XO.names, tag = selectedTag();
+  const reset = N.custom.size ? `<button class="link" type="button" data-nact="resetAll">Reset all custom names (${N.custom.size})</button>` : "";
+  box.innerHTML = (tag ? renameForm(tag, "renameIn") : `<div class="lbl">Select an element to rename it.</div>`) + reset;
+}
+function applyNames(){
+  saveNames();
+  if (!A.O) return;
+  A.O.build();
+  renderLegend(); renderNames();
+  const s = A.O.bodies.get(A.sel); if (s) renderSide(s);
+  const h = A.O.bodies.get(A.hover); if (h && !$("tip").hidden) { $("tip").innerHTML = tipHtml(h); placeTip(h); }
+  if (!$("results").hidden) showResults();
+  kick();
+}
+/* the rename form lives in the Display names box and in the side panel; both work the same */
+function onRename(e){
+  const t = e.target.closest("button[data-nact]"); if (!t) return;
+  e.stopPropagation();
+  if (t.dataset.nact === "info") { setNamesInfo(document.body.classList.contains("ninfo-off")); return; }
+  const box = t.closest(".ren, .box") || e.currentTarget, inp = box.querySelector("input[data-tag]"), tag = inp?.dataset.tag, N = XO.names;
+  if (t.dataset.nact === "save" && tag) { const v = inp.value.trim(); if (v) N.custom.set(tag, v); else N.custom.delete(tag); }
+  else if (t.dataset.nact === "reset" && tag) N.custom.delete(tag);
+  else if (t.dataset.nact === "resetAll") N.custom.clear();
+  else return;
+  /* the form is drawn again; put the cursor back where it was */
+  const back = inp && document.activeElement === inp ? inp.id : t.dataset.nact === "save" && inp ? inp.id : null;
+  applyNames();
+  if (back) $(back)?.focus();
+}
+function onRenameKey(e){ if (e.key === "Enter" && e.target.matches("input[data-tag]")) { e.preventDefault(); e.target.parentElement.querySelector('button[data-nact="save"]').click(); } }
+$("namesBox").addEventListener("click", onRename, true);
+for (const id of ["side"]) $(id).addEventListener("click", onRename, true);
+for (const id of ["renameArea", "side"]) $(id).addEventListener("keydown", onRenameKey);
 
 /* ---------------- controls ---------------- */
 const ICON_PAUSE = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
@@ -583,12 +745,12 @@ document.addEventListener("keydown", e => {
 });
 $("play").addEventListener("click", () => setPlay(!A.playing));
 $("fit").addEventListener("click", () => fit(true));
-$("foldAll").addEventListener("click", () => { if (!A.O) return; A.O.open = new Set([A.src.rootId]); A.O.spread.clear(); select(null); A.O.build(); setTimeout(() => fit(true), 250); kick(); });
+$("foldAll").addEventListener("click", () => { if (!A.O) return; A.O.open = new Set(); A.O.spread.clear(); select(null); A.O.build(); setTimeout(() => fit(true), 250); kick(); });
 for (const id of ["openBtn", "openBtn2"]) $(id).addEventListener("click", () => $("fileIn").click());
 $("sampleBtn").addEventListener("click", () => { A.userLoaded = false; loadSample(); });
 $("examples").addEventListener("change", e => { const u = e.target.value; e.target.value = ""; if (u) { A.userLoaded = false; loadSample(u); } });
 $("fileIn").addEventListener("change", e => { const f = e.target.files[0]; if (f) loadFile(f); e.target.value = ""; });
-$("legend").addEventListener("toggle", () => { const s = A.O?.bodies.get(A.sel); if (s && s.parent) followBody(s, false); else fit(true); });
+for (const id of ["legend", "namesBox"]) $(id).addEventListener("toggle", () => { const s = A.O?.bodies.get(A.sel); if (s && s.parent) followBody(s, false); else fit(true); });
 let dragDepth = 0;
 window.addEventListener("dragenter", e => { if ([...(e.dataTransfer?.types || [])].includes("Files")) { dragDepth++; $("drop").hidden = false; } });
 window.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; $("drop").hidden = true; } });
@@ -600,7 +762,12 @@ document.addEventListener("paste", e => {
   if (t.trim().startsWith("<")) { A.userLoaded = true; loadSeq++; try { loadText(t, "pasted XML"); } catch (err) { showErr(err.message); } }
 });
 window.addEventListener("resize", () => { resize(); });
+/* text widths measured before the web fonts arrived are wrong; measure again once they are in */
+document.fonts?.ready.then(() => { widths.clear(); kick(); });
+/* the header wraps to two rows on mid-size screens; everything placed under it follows its real height */
+new ResizeObserver(() => document.documentElement.style.setProperty("--top", $("top").getBoundingClientRect().bottom + "px")).observe($("top"));
 if (innerWidth < 1100) $("legend").open = false;
+renderNames();
 resize();
 loadSample();
 window.XO.app = A; A.loadText = loadText; A.reveal = reveal; A.clickBody = clickBody;
