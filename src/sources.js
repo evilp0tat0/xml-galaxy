@@ -19,7 +19,6 @@ XO.clip = clip;
 const SEEDS = ["#ff4d4f","#3b9bff","#2fd67b","#ffd23f","#b67cff","#ff8a1f","#ff6bcb","#a3e635","#f5f5f5","#c08457"];
 /* reserved for id-reference lines; no tag gets it, and generated colours keep away from it */
 const REF_COLOUR = "#22d3ee";
-const PALETTE = SEEDS;
 const toLin = v => (v /= 255) <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
 const toByte = v => Math.round(255 * Math.min(1, Math.max(0, v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055)));
 function hexLab(hex){
@@ -134,7 +133,7 @@ function xmlSource(doc, fileName){
   const tags = [...tagCount.keys()].sort((a, b) => tagCount.get(b) - tagCount.get(a));
   const cols = colours(tags.length);
   const palette = new Map(tags.map((t, i) => ["t:" + t, { color:cols[i], tag:t, get title(){ return "<" + dn(t) + ">"; }, count:tagCount.get(t) }]));
-  palette.set("ref", { color:REF_COLOUR, title:"Points to (id reference)" });
+  palette.set("ref", { color:REF_COLOUR });
 
   /* A short human name for an element: its tag plus a telling attribute or child. Worked out when first asked for:
      a big file has far more elements than are ever shown. */
@@ -243,20 +242,18 @@ function xmlSource(doc, fileName){
   const score = r => Math.round(1 + 99 * r.kids.length / maxKids);
   const size = r => 3 + 25 * (score(r) - 1) / 99;
   return {
-    fileName, palette, total:E.length, rootId:id(E[0]),
-    title:fileTitle, rootTag:R0.tag, startOpen:false, header, flatSize:true,
-    has: x => !!rec(x),
+    palette, total:E.length, rootId:id(E[0]), title:fileTitle, header,
     tagOf: x => rec(x)?.tag || "",
-    node(x){ const r = rec(x); return r && { id:x, label:labelOf(r), color:"t:" + r.tag, size:size(r), kind:"<" + dn(r.tag) + ">", tag:r.tag, kids:r.kids.length }; },
+    node(x){ const r = rec(x); return r && { id:x, label:labelOf(r), color:"t:" + r.tag, size:size(r), kind:"<" + dn(r.tag) + ">", kids:r.kids.length }; },
     canOpen: x => { const r = rec(x); return !!r && r.kids.length > 0; },
     groups(x){
       const r = rec(x); if (!r) return [];
       const by = new Map();
-      for (const k of r.kids) { let l = by.get(k.tag); if (!l) by.set(k.tag, l = []); l.push(k); }
-      return [...by].map(([tag, ks]) => { const t = "<" + dn(tag) + ">"; return { key:"t:" + tag, title:t, color:"t:" + tag,
-        entries:ks.map(k => ({ id:id(k), short:"", label:"child " + t })) }; });
+      for (const k of r.kids) { if (!by.has(k.tag)) by.set(k.tag, []); by.get(k.tag).push(k); }
+      return [...by].map(([tag, ks]) => ({ key:"t:" + tag, title:"<" + dn(tag) + ">", color:"t:" + tag,
+        entries:ks.map(k => ({ id:id(k) })) }));
     },
-    refs(x){ const r = rec(x); return (out.get(r) || []).map(o => ({ to:id(o.to), color:"ref", short:"@" + o.attr, label:o.attr + " → " + labelOf(o.to) })); },
+    refs(x){ const r = rec(x); return (out.get(r) || []).map(o => ({ to:id(o.to), color:"ref", short:"@" + o.attr })); },
     pathTo(x){ const c = []; for (let r = rec(x); r; r = r.parent) c.unshift(id(r)); return c; },
     search(q){
       q = q.trim().toLowerCase(); if (!q) return [];
@@ -294,5 +291,5 @@ function xmlSource(doc, fileName){
   }
 }
 
-XO.sources = { xmlSource, PALETTE, colours, inkFor };
+XO.sources = { xmlSource, inkFor };
 })();

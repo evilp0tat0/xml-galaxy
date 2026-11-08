@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>XML viewer</title>
-<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Exo+2:wght@400;500;600;700&family=Orbitron:wght@500;600;700&display=swap">
 <style>
 /* Layout after GitNexus: a header bar, the graph filling the rest, a side panel docked right, a status bar along the bottom.
@@ -14,7 +14,7 @@
   --void:#06060a;--deep:#0a0a10;--surface:#101018;--elevated:#16161f;--hover:#1c1c28;
   --line:#1e1e2a;--line-2:#2a2a3a;
   --text:#e4e4ed;--muted:#8888a0;--faint:#5a5a70;
-  --accent:#7c3aed;--accent-dim:#5b21b6;--accent-text:#a78bfa;--pink:#ec4899;--ok:#10b981;--warn:#f59e0b;--danger:#f87171;
+  --accent:#7c3aed;--accent-text:#a78bfa;--pink:#ec4899;--ok:#10b981;--warn:#f59e0b;--danger:#f87171;
   /* space look: Orbitron for titles and numbers, Exo 2 for everything you read */
   --font-ui:"Exo 2",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   --font-mono:"Exo 2",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
@@ -28,7 +28,7 @@ body{background:var(--void);color:var(--text);font:14px/1.45 var(--font-ui);over
 button,input,select{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 [hidden]{display:none!important}
-code,.mono{font-family:var(--font-mono);font-size:.9em}
+code{font-family:var(--font-mono);font-size:.9em}
 ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:8px}::-webkit-scrollbar-track{background:transparent}
 
 /* the sky's dark gradient and faint violet glow are painted here once, so the canvas only has to clear itself each frame */
@@ -100,7 +100,6 @@ body:has(.side:not([hidden])) .ctrls{right:calc(min(380px,100vw) + 14px)}
 .legend .k em{font-style:normal;color:var(--faint);margin-left:auto;font-size:10.5px}
 .legend p{margin:8px 0 12px;color:var(--muted);font-size:11.5px;white-space:normal;line-height:1.5}
 .names{padding:2px 12px 8px;font-size:12px}
-.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .ninfo-bar{display:flex;justify-content:flex-end;margin:-4px 0 4px}
 p.ninfo{margin:0 0 7px;color:var(--faint);font-size:11px;line-height:1.5}
 .ren p.ninfo{margin:2px 0 0}
@@ -254,7 +253,7 @@ body.ninfo-off .ninfo{display:none}
 
 <section class="glass welcome" id="welcome" hidden>
   <h2>See an XML file as a solar system</h2>
-  <p>Open or drop any XML file, or paste XML anywhere on this page. The root element is the sun. Each element's children orbit it, each on an orbit of its own. Click a body to open its own orbits. What orbits what never changes; you can drag bodies about and they drift back.</p>
+  <p>Open or drop any XML file, or paste XML anywhere on this page. The root element is the sun. Each element's children orbit it, each on an orbit of its own. Click a body to centre it; click it again to open its own orbits. What orbits what never changes; you can drag bodies about and they drift back.</p>
   <p class="err" id="err" hidden></p>
   <div class="acts"><button class="btn primary" id="openBtn2" type="button">Open XML</button><button class="btn" id="sampleBtn" type="button">Load the S-201 sample</button></div>
 </section>
