@@ -114,7 +114,7 @@ function litSet(){
     const a = l.a.id, b = l.b.id;
     if ((l.kind === "spoke" && onChain.has(a) && onChain.has(b)) || a === d.id || b === d.id) { links.add(l.id); nodes.add(a); nodes.add(b); }
   }
-  return { d, nodes, links, rings, onChain };
+  return { d, nodes, links, rings };
 }
 
 /* ---------------- drawing ---------------- */
@@ -276,11 +276,9 @@ function drawLabels(lit){
       break;
     }
   }
-  /* link labels on the lit chain, then orbit names */
-  if (lit) for (const l of O.links) {
+  /* labels on the lit body's id-reference lines (none when more than 10 lines are lit), then orbit names */
+  if (lit && lit.links.size <= 10) for (const l of O.links) {
     if (!lit.links.has(l.id) || !l.short) continue;
-    const big = lit.links.size > 10;
-    if (big && !(l.kind === "spoke" && lit.onChain.has(l.a.id) && lit.onChain.has(l.b.id))) continue;
     const [ax, ay] = S(l.a), [bx, by] = S(l.b), mx = (ax + bx) / 2, my = (ay + by) / 2;
     const w = textW(l.short, MONO_S) + 10, h = 17;
     for (const [dx, dy] of [[0, 0], [0, -16], [0, 16], [0, -32], [0, 32], [w * 0.6, 0], [-w * 0.6, 0]]) {
@@ -347,7 +345,7 @@ canvas.addEventListener("pointermove", e => {
     P.x = e.offsetX; P.y = e.offsetY; return;
   }
   A.mx = e.offsetX; A.my = e.offsetY; A.mslop = e.pointerType === "touch" ? 16 : 4;
-  setHover(hit(e.offsetX, e.offsetY, A.mslop), e);
+  setHover(hit(e.offsetX, e.offsetY, A.mslop));
 });
 function endPointer(e){
   pts.delete(e.pointerId);
@@ -387,7 +385,7 @@ canvas.addEventListener("keydown", e => {
 });
 
 /* ---------------- hover, tooltip, selection ---------------- */
-function setHover(b, e){
+function setHover(b){
   const id = b ? b.id : null;
   canvas.classList.toggle("pointing", !!b);
   if (id === A.hover) return;
@@ -410,9 +408,9 @@ function headerHtml(h, max = 12, per = 8){
 }
 function tipHtml(b){
   const n = A.src.node(b.id), kind = b.type === "group" ? `${b.count} × ${esc(b.label)} (folded)` : esc(n?.kind || "");
-  const act = b.type === "group" ? "Click to spread them into a full orbit" : A.sel !== b.id ? "Click to centre it" + (canToggle(b) ? "; click again to show its child elements" : "") : canToggle(b) ? (b.isOpen ? "Click again to fold its child elements" : "Click again to show its child elements") : "";
+  const act = b.type === "group" ? "Click to spread them out" : A.sel !== b.id ? "Click to centre it" + (canToggle(b) ? "; click again to show its child elements" : "") : canToggle(b) ? (b.isOpen ? "Click again to fold its child elements" : "Click again to show its child elements") : "";
   const cross = A.O.links.filter(l => l.kind !== "spoke" && (l.a === b || l.b === b)).length;
-  const head = !b.parent && A.src.header ? headerHtml(A.src.header()) : "";
+  const head = b.parent ? "" : headerHtml(A.src.header());
   return `<b>${esc(b.label)}</b><span class="s">${kind}</span>${head}${b.parent ? `<div class="c">${chainText(b)}</div>` : ""}${cross ? `<div class="c">${cross} more link${cross === 1 ? "" : "s"} (dashed)</div>` : ""}${act ? `<div class="c">${act}</div>` : ""}`;
 }
 /* Try spots all round the body; keep the one covering least of it, its lit neighbours and the panels. */
@@ -467,7 +465,6 @@ function toggleOpen(b){
   const nb = O.bodies.get(b.id);
   select(nb); followBody(nb, opened);
 }
-function rebuildAndKeep(){ A.O.build(); const s = A.O.bodies.get(A.sel); if (s) renderSide(s); else select(null); kick(); }
 
 /* ---------------- side panel ---------------- */
 function renderSide(b){
@@ -492,7 +489,7 @@ function renderSide(b){
   if (info?.linksIn?.length) parts.push(`<div><h3>Pointed at by</h3><div class="list">${info.linksIn.slice(0, 30).map(o => linkRow(o.id, o.text, o.color)).join("")}</div></div>`);
   if (info?.tag) parts.push(`<div class="ren">${renameForm(info.tag, "renameSide")}</div>`);
   const acts = [];
-  if (b.type === "group") acts.push(`<button class="btn primary" type="button" data-act="spread">Spread into a full orbit</button>`);
+  if (b.type === "group") acts.push(`<button class="btn primary" type="button" data-act="spread">Spread them out</button>`);
   else if (canToggle(b)) acts.push(`<button class="btn primary" type="button" data-act="toggle">${b.isOpen ? "Fold its child elements" : "Show its child elements"}</button>`);
   acts.push(`<button class="btn" type="button" data-act="close">Close</button>`);
   parts.push(`<div class="acts">${acts.join("")}</div>`);
@@ -557,7 +554,7 @@ function decode(buf){
 function setSource(src){
   A.src = src; A.O = new XO.Orbits(src); A.sel = null; A.hover = null; A.follow = null; A.followK = null;
   $("side").hidden = true; hideTip();
-  /* a plain XML file starts as one circle, the root element named after the file; click it to see its children */
+  /* a file starts as one circle, the root element named after the file; click it to centre it, click again to see its children */
   A.O.build();
   for (let i = 0; i < 90; i++) A.O.step(1 / 30, false);
   renderLegend(); renderNames();
@@ -594,8 +591,8 @@ async function loadSample(url = SAMPLE){
   try { const r = await fetch(url); if (!r.ok) throw new Error("HTTP " + r.status); const buf = await r.arrayBuffer(); if (A.userLoaded || my !== loadSeq) return; loadText(decode(buf), url); }
   catch (err) {
     if (my !== loadSeq) return;
-    if (A.src) { note(location.protocol === "file:" ? "Examples need this folder served (./serve.sh). Open a file instead." : "Could not load the example: " + err.message); return; }
-    { $("welcome").hidden = false; if (location.protocol === "file:") { $("err").textContent = "Opened straight from disk, the sample cannot load. Open a file instead, or serve this folder (./serve.sh)."; $("err").hidden = false; } } }
+    if (A.src) { note(location.protocol === "file:" ? "Examples need this folder served (start.bat on Windows, ./serve.sh on macOS or Linux). Open a file instead." : "Could not load the example: " + err.message); return; }
+    { $("welcome").hidden = false; if (location.protocol === "file:") { $("err").textContent = "Opened straight from disk, the sample cannot load. Open a file instead, or serve this folder (start.bat on Windows, ./serve.sh on macOS or Linux)."; $("err").hidden = false; } } }
 }
 
 /* ---------------- legend ---------------- */
@@ -727,7 +724,7 @@ function onRename(e){
 }
 function onRenameKey(e){ if (e.key === "Enter" && e.target.matches("input[data-tag]")) { e.preventDefault(); e.target.parentElement.querySelector('button[data-nact="save"]').click(); } }
 $("namesBox").addEventListener("click", onRename, true);
-for (const id of ["side"]) $(id).addEventListener("click", onRename, true);
+$("side").addEventListener("click", onRename, true);
 for (const id of ["renameArea", "side"]) $(id).addEventListener("keydown", onRenameKey);
 
 /* ---------------- controls ---------------- */
