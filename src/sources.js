@@ -66,22 +66,24 @@ function inkFor(hex){
 }
 
 /* ---------------- display names: how tag names are shown (the file itself is never changed) ----------------
-   full      S100FC:S100_FC_DefinitionSources   as written in the file
-   shorter   FC_DefinitionSources               no namespace prefix, only the last code part kept
-   shortest  DefinitionSources                  no namespace prefix, no code parts
-   Code parts are leading pieces in capitals and digits followed by "_" (S100_, FC_, CI_ …).
-   A custom name for a tag wins over the style. */
-const names = { style:"full", custom:new Map() };
+   The viewer types the parts they do not want to see (S100FC:, S100_FC_ …); each is taken out of every name.
+   Matching ignores case. Longer parts go first, so S100_FC_ is taken out whole before S100_.
+   Separators left at either end (_ : . -) are trimmed; a name that would end up empty stays as it is.
+   A custom name for a tag wins over all of this. */
+const names = { hide:[], custom:new Map() };
 const localOf = t => t.slice(t.indexOf(":") + 1);
-function styledName(tag, style){
-  if (style !== "shorter" && style !== "shortest") return tag;
-  const loc = localOf(tag), parts = loc.split("_");
-  let c = 0; while (c < parts.length - 1 && /^[A-Z0-9]+$/.test(parts[c]) && parts[c + 1]) c++;
-  const out = parts.slice(style === "shortest" ? c : Math.max(0, c - 1)).join("_");
-  return out || loc || tag;
+const reEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function strippedName(tag, hide = names.hide){
+  let s = tag;
+  for (const p of [...hide].sort((a, b) => b.length - a.length)) if (p) s = s.replace(new RegExp(reEsc(p), "gi"), "");
+  if (s === tag) return tag;
+  s = s.replace(/^[_:.\-]+|[_:.\-]+$/g, "");
+  return s || tag;
 }
-names.show = tag => names.custom.get(tag) || styledName(tag, names.style);
-names.styled = styledName;
+/* "S100FC: S100_FC_" or "a, b" → the separate parts; tag names never hold spaces or commas */
+names.parse = text => String(text || "").split(/[\s,]+/).filter(Boolean);
+names.show = tag => names.custom.get(tag) || strippedName(tag);
+names.strip = strippedName;
 XO.names = names;
 const dn = tag => names.show(tag);
 
@@ -145,8 +147,8 @@ function xmlSource(doc, fileName){
     /* a list: several children of one tag, or a plural wrapper of one (DefinitionSources around one DefinitionSource) */
     const plural = (w, c) => { w = localOf(w).toLowerCase(); c = localOf(c).toLowerCase(); return w.endsWith(c + "s") || w.endsWith(c + "es") || (c.endsWith("y") && w.endsWith(c.slice(0, -1) + "ies")); };
     const isList = k => k.kids.length > 0 && k.kids.every(c => c.tag === k.kids[0].tag) && (k.kids.length > 1 || (k.kids[0].kids.length > 0 && plural(k.tag, k.kids[0].tag)));
-    /* field names follow the display style, without the namespace prefix (scope, not S100FC:scope) */
-    const keyName = r => names.custom.get(r.tag) || (names.style === "full" ? localOf(r.tag) : styledName(r.tag, names.style));
+    /* field names follow the display names, without the namespace prefix (scope, not S100FC:scope) */
+    const keyName = r => names.custom.get(r.tag) || localOf(strippedName(r.tag));
     /* an element's value: its text, or else its attributes */
     const valueOf = el => el.textContent.trim() || [...el.attributes].filter(a => !/^xmlns(:|$)/.test(a.name)).map(a => a.name + "=" + a.value).join(" ");
     const out = [];
