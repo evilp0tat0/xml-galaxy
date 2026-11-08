@@ -583,10 +583,11 @@ function loadText(text, name){
   setSource(src);
 }
 let loadSeq = 0;
+/* reading a big file takes a while: if something else is opened meanwhile, this file and any error from it are dropped */
 async function loadFile(file){
-  A.userLoaded = true; loadSeq++;
-  try { const buf = await file.arrayBuffer(); loadText(decode(buf), file.name); }
-  catch (err) { showErr("Could not open " + file.name + ": " + err.message); }
+  A.userLoaded = true; const my = ++loadSeq;
+  try { const buf = await file.arrayBuffer(); if (my !== loadSeq) return; loadText(decode(buf), file.name); }
+  catch (err) { if (my === loadSeq) showErr("Could not open " + file.name + ": " + err.message); }
 }
 function showErr(msg){ if (A.src) note(msg); else { $("welcome").hidden = false; $("err").textContent = msg; $("err").hidden = false; } }
 async function loadSample(url = SAMPLE){
