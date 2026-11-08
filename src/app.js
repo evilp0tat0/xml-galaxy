@@ -42,17 +42,51 @@ function freeArea(){
 }
 
 /* ---------------- frame loop ---------------- */
-let raf = 0, last = 0;
-function kick(){ if (!raf) raf = requestAnimationFrame(frame); }
+/* The physics runs every frame, but the canvas is drawn again only when the picture would change: after kick() (every change
+   of state calls it), while a search pulse runs or folded-away bodies fade, or once something drawn has moved a quarter of a
+   canvas pixel: a body, or the orbit it rides on as orbits grow and shrink after a rebuild. Text is placed to a quarter pixel
+   anyway, so smaller steps hardly show; zoomed out on a big file the bodies creep a few hundredths of a pixel a frame, and
+   most frames are skipped. When everything comes to rest, the exact picture is drawn. */
+let raf = 0, last = 0, dirty = true;
+function kick(){ dirty = true; if (!raf) raf = requestAnimationFrame(frame); }
 function frame(now){
   raf = 0;
   const dt = last ? Math.min(0.05, (now - last) / 1000) : 0; last = now;
-  const spin = !!A.O && A.playing && !A.hover && !A.ptr?.dragging;
+  const spin = A.playing && !!A.O && !A.hover && !A.ptr?.dragging;   /* nothing turns before a file is loaded */
   const moving = A.O ? A.O.step(dt, spin) : false;
   const camMoving = cameraStep();
-  draw();
-  if (!A.ptr && A.mx != null && (camMoving || moving || spin)) { const h = hit(A.mx, A.my, A.mslop); if ((h?.id ?? null) !== A.hover) setHover(h); else if (h && !$("tip").hidden) placeTip(h); }
-  if (spin || moving || camMoving || A.ptr?.dragging || A.pulse) raf = requestAnimationFrame(frame); else last = 0;
+  /* a pulse whose body has folded away shows nothing, and need not keep the loop running */
+  const pulsing = !!A.pulse && !!A.O?.bodies.has(A.pulse.id);
+  const busy = spin || moving || camMoving || A.ptr?.dragging || pulsing;
+  const d = dirty ? Infinity : moved();
+  const drew = pulsing || d > 0.25 / DPR || (!busy && d > 0);
+  if (drew) { dirty = false; draw(); remember(); }
+  /* hover still notices a body drifting under a still mouse every frame; the tip moves with the picture */
+  if (!A.ptr && A.mx != null && (camMoving || moving || spin)) { const h = hit(A.mx, A.my, A.mslop); if ((h?.id ?? null) !== A.hover) setHover(h); else if (drew && h && !$("tip").hidden) placeTip(h); }
+  /* setHover above may already have asked for the next frame: asking again would run two loops */
+  if (busy) { if (!raf) raf = requestAnimationFrame(frame); } else last = 0;
+}
+/* what the canvas showed when it was last drawn: each body's place on screen and the radius of the orbit it rides on */
+const seen = { pos:new Float64Array(0) };
+function remember(){
+  const O = A.O, c = A.cam, s = seen;
+  Object.assign(s, { O, order:O?.order, ghosts:O ? O.ghosts.length : 0, k:c.k, W, H, DPR, hover:A.hover, sel:A.sel });
+  if (!O) return;
+  const n = O.order.length; if (s.pos.length < 3 * n) s.pos = new Float64Array(3 * n);
+  for (let i = 0; i < n; i++) { const b = O.order[i]; s.pos[3 * i] = c.x + c.k * b.x; s.pos[3 * i + 1] = c.y + c.k * b.y; s.pos[3 * i + 2] = b.ring ? b.ring.rd * c.k : 0; }
+}
+/* How far anything drawn has moved on screen since then; Infinity when something else changed (a rebuild, the zoom, bodies
+   fading away, hover or selection, the canvas). Bodies off screen count too: their orbits and links can cross it. */
+function moved(){
+  const O = A.O, c = A.cam, s = seen;
+  if (O !== s.O || O?.order !== s.order || c.k !== s.k || W !== s.W || H !== s.H || DPR !== s.DPR || A.hover !== s.hover || A.sel !== s.sel || s.ghosts || O?.ghosts.length) return Infinity;
+  if (!O) return 0;
+  let m = 0;
+  for (let i = 0, n = O.order.length; i < n; i++) {
+    const b = O.order[i], p = 3 * i;
+    m = Math.max(m, Math.abs(c.x + c.k * b.x - s.pos[p]), Math.abs(c.y + c.k * b.y - s.pos[p + 1]), Math.abs((b.ring ? b.ring.rd * c.k : 0) - s.pos[p + 2]));
+  }
+  return m;
 }
 function cameraStep(){
   const c = A.cam, f = REDUCED ? 1 : 0.13;
@@ -102,10 +136,19 @@ function followBody(b, zoomToSystem){
 }
 
 /* ---------------- what is lit ---------------- */
+/* draw() and placeTip() ask for this every frame; it is worked out again only when the hovered or selected body,
+   or the map (a rebuild makes a new order), changes */
+let litMemo = null;
 function litSet(){
   const O = A.O; if (!O) return null;
   const d = O.bodies.get(A.hover) || O.bodies.get(A.sel);
   if (!d) return null;
+  if (litMemo && litMemo.order === O.order && litMemo.d === d) return litMemo.lit;
+  const lit = litOf(O, d);
+  litMemo = { order:O.order, d, lit };
+  return lit;
+}
+function litOf(O, d){
   const nodes = new Set(), links = new Set(), rings = new Set(), chain = O.chainOf(d), onChain = new Set(chain.map(x => x.id));
   for (const x of chain) nodes.add(x.id);
   for (let i = 0; i < chain.length - 1; i++) { const r = chain[i + 1].ring; if (r) rings.add(r.id); }
@@ -114,7 +157,7 @@ function litSet(){
     const a = l.a.id, b = l.b.id;
     if ((l.kind === "spoke" && onChain.has(a) && onChain.has(b)) || a === d.id || b === d.id) { links.add(l.id); nodes.add(a); nodes.add(b); }
   }
-  return { d, nodes, links, rings, onChain };
+  return { d, nodes, links, rings };
 }
 
 /* ---------------- drawing ---------------- */
@@ -132,15 +175,128 @@ function bodyScale(b, lit){
   if (b.id === lit.d.id) return 1.5;
   return lit.nodes.has(b.id) ? 1.15 : 0.6;
 }
+/* dash patterns are made once: a new array for every orbit and link, every frame, is garbage for nothing */
+const NO_DASH = [], DASH_FOLDED = [3, 4], DASH_REF = [5, 5], DASH_GROUP = [3, 2.5];
+const TAU = Math.PI * 2;
+
+/* ---------------- lines far bigger than the screen ----------------
+   Zoomed in deep, an orbit or a link can be millions of pixels long. The canvas lays dashes along the whole of a stroke,
+   however much of it is off screen, and works in single precision, which at that size is pixels out (a very thin slice
+   of a huge circle is not drawn at all). So such a line is stroked only where it crosses the screen, in pieces worked out
+   here in full precision. Pieces start and end on a fixed grid along the line, and their dashes start where they fall on
+   the whole line, so the dashes stay put as the view pans and as pieces come into view. */
+const EDGE = 40;                 /* how far past the screen's edges a line is still drawn */
+/* A dashed line is cut to the screen once it is longer than the screen, as its dashes then cost more than the cut.
+   A solid line costs no more for its length, and is cut only where single precision starts to show. */
+const HUGE = 1e5;
+/* the angle ranges (within 0..2π) of the circle x, y, r that lie on the screen; null when all of it does */
+function circleSpans(x, y, r){
+  const L = -EDGE, T = -EDGE, R = W + EDGE, B = H + EDGE;
+  if (x - r >= L && x + r <= R && y - r >= T && y + r <= B) return null;
+  const as = [0, TAU];
+  for (const v of [L, R]) { const d = (v - x) / r; if (d > -1 && d < 1) { const a = Math.acos(d); as.push(a, TAU - a); } }
+  for (const v of [T, B]) { const d = (v - y) / r; if (d > -1 && d < 1) { const a = Math.asin(d); as.push(a < 0 ? a + TAU : a, Math.PI - a); } }
+  as.sort((p, q) => p - q);
+  /* between two crossings of the screen's edge lines the circle is wholly on screen or wholly off it */
+  const out = [];
+  for (let i = 1; i < as.length; i++) {
+    const a0 = as[i - 1], a1 = as[i], m = (a0 + a1) / 2;
+    if (!(a1 > a0)) continue;
+    const px = x + r * Math.cos(m), py = y + r * Math.sin(m);
+    if (px < L || px > R || py < T || py > B) continue;
+    const o = out[out.length - 1]; if (o && o[1] === a0) o[1] = a1; else out.push([a0, a1]);
+  }
+  return out;
+}
+/* Stroke the arc of the circle x, y, r from angle `from` to `to` (at most a full turn), with the current style.
+   A dashed one (period: the dash pattern's length) has its dashes counted from angle 0, as when the whole circle is drawn.
+   Returns whether any of the circle is on screen. */
+function strokeArc(x, y, r, from, to, period){
+  const spans = circleSpans(x, y, r);
+  if (spans && !spans.length) return false;
+  /* all of it on screen, or not big enough to need cutting: drawn whole */
+  if (!spans || r <= (period ? W + H : HUGE)) { ctx.beginPath(); ctx.arc(x, y, r, from, to); ctx.stroke(); return true; }
+  /* the drawn range, moved to start within 0..2π; what is on screen repeats every full turn */
+  const turn = TAU * Math.floor(from / TAU), f = from - turn, t = to - turn, g = 256 / r, pieces = [];
+  for (const k of [0, TAU]) for (const [s0, s1] of spans) {
+    const a0 = Math.max(f, s0 + k), a1 = Math.min(t, s1 + k);
+    if (!(a1 > a0)) continue;
+    /* out to the grid (every 256 px along the circle), but never past the ends of the drawn range: an open moon's gap stays exact */
+    const p0 = Math.max(f, Math.floor(a0 / g) * g), p1 = Math.min(t, Math.ceil(a1 / g) * g), last = pieces[pieces.length - 1];
+    if (last && p0 <= last[1]) last[1] = Math.max(last[1], p1); else pieces.push([p0, p1]);
+  }
+  for (const [a0, a1] of pieces) {
+    if (period) ctx.lineDashOffset = (r * a0) % period;
+    ctx.beginPath();
+    if (a1 - a0 >= 0.01) ctx.arc(x, y, r, a0, a1);
+    else {
+      /* a thin slice of a huge circle: one curve through the tangents' meeting point, within a hair of the true arc */
+      const m = (a0 + a1) / 2, q = r / Math.cos((a1 - a0) / 2);
+      ctx.moveTo(x + r * Math.cos(a0), y + r * Math.sin(a0));
+      ctx.quadraticCurveTo(x + q * Math.cos(m), y + q * Math.sin(m), x + r * Math.cos(a1), y + r * Math.sin(a1));
+    }
+    ctx.stroke();
+  }
+  if (period) ctx.lineDashOffset = 0;
+  return pieces.length > 0;
+}
+/* the values of t at which one coordinate of the curve p0, p1, p2 equals v (the caller keeps those within 0..1) */
+function crossings(p0, p1, p2, v, out){
+  const a = p0 - 2 * p1 + p2, b = 2 * (p1 - p0), c = p0 - v;
+  if (Math.abs(a) <= 1e-12 * (Math.abs(b) + Math.abs(c))) { if (b) out.push(-c / b); return; }
+  const d = b * b - 4 * a * c; if (d < 0) return;
+  const q = -(b + (b < 0 ? -1 : 1) * Math.sqrt(d)) / 2;
+  out.push(q / a); if (q) out.push(c / q);
+}
+/* the stretches [t0, t1] of the quadratic curve x0, y0 / x1, y1 / x2, y2 that lie on the screen */
+function curveSpans(x0, y0, x1, y1, x2, y2){
+  const L = -EDGE, T = -EDGE, R = W + EDGE, B = H + EDGE, ts = [0, 1];
+  crossings(x0, x1, x2, L, ts); crossings(x0, x1, x2, R, ts); crossings(y0, y1, y2, T, ts); crossings(y0, y1, y2, B, ts);
+  const s = ts.filter(t => t >= 0 && t <= 1).sort((p, q) => p - q), out = [];
+  for (let i = 1; i < s.length; i++) {
+    if (!(s[i] > s[i - 1])) continue;
+    const t = (s[i - 1] + s[i]) / 2, u = 1 - t, x = u * u * x0 + 2 * u * t * x1 + t * t * x2, y = u * u * y0 + 2 * u * t * y1 + t * t * y2;
+    if (x < L || x > R || y < T || y > B) continue;
+    const o = out[out.length - 1]; if (o && o[1] === s[i - 1]) o[1] = s[i]; else out.push([s[i - 1], s[i]]);
+  }
+  return out;
+}
+/* how far along the curve the point at t lies (exact), so a piece's dashes start where they fall on the whole curve */
+function lengthTo(x0, y0, x1, y1, x2, y2, t){
+  const ax = x1 - x0, ay = y1 - y0, bx = x0 - 2 * x1 + x2, by = y0 - 2 * y1 + y2;
+  const a = bx * bx + by * by, b = ax * bx + ay * by, c = ax * ax + ay * ay;
+  if (a <= 1e-12 * c) return 2 * Math.sqrt(c) * t;
+  const p0 = b / a, m = Math.max(c / a - p0 * p0, 1e-300), sm = Math.sqrt(m), g = p => p * Math.sqrt(p * p + m) + m * Math.asinh(p / sm);
+  return Math.sqrt(a) * (g(t + p0) - g(p0));
+}
+/* Stroke a quadratic curve with the current style; a big one only where it crosses the screen. A dashed one (period: the dash
+   pattern's length) has its dashes counted from its start, as when it is drawn whole. */
+function strokeCurve(ax, ay, cx, cy, bx, by, period){
+  const poly = Math.hypot(cx - ax, cy - ay) + Math.hypot(bx - cx, by - cy);   /* the curve is no longer than this */
+  if (poly <= (period ? W + H : HUGE)) { ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo(cx, cy, bx, by); ctx.stroke(); return; }
+  /* pieces start and end on a grid of t, at most 256 px apart along the curve */
+  const g = 256 / poly, pieces = [];
+  for (const [s0, s1] of curveSpans(ax, ay, cx, cy, bx, by)) {
+    const t0 = Math.floor(s0 / g) * g, t1 = Math.min(1, Math.ceil(s1 / g) * g), last = pieces[pieces.length - 1];
+    if (last && t0 <= last[1]) last[1] = Math.max(last[1], t1); else pieces.push([t0, t1]);
+  }
+  for (const [t0, t1] of pieces) {
+    const u = 1 - t0, v = 1 - t1, f = t1 - t0;
+    const sx = u * u * ax + 2 * u * t0 * cx + t0 * t0 * bx, sy = u * u * ay + 2 * u * t0 * cy + t0 * t0 * by;
+    const ex = v * v * ax + 2 * v * t1 * cx + t1 * t1 * bx, ey = v * v * ay + 2 * v * t1 * cy + t1 * t1 * by;
+    if (period) ctx.lineDashOffset = lengthTo(ax, ay, cx, cy, bx, by, t0) % period;
+    /* the piece of a quadratic curve is one too: its control point lies along the tangent at its start */
+    ctx.beginPath(); ctx.moveTo(sx, sy);
+    ctx.quadraticCurveTo(sx + f * (u * (cx - ax) + t0 * (bx - cx)), sy + f * (u * (cy - ay) + t0 * (by - cy)), ex, ey);
+    ctx.stroke();
+  }
+  if (period) ctx.lineDashOffset = 0;
+}
 function draw(){
   const c = A.cam;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  const bg = ctx.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, "#06060a"); bg.addColorStop(1, "#0a0a10");
-  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
-  const vg = ctx.createRadialGradient(W * 0.5, H * 0.5, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.7);
-  vg.addColorStop(0, "rgba(124,58,237,0.05)"); vg.addColorStop(1, "rgba(124,58,237,0)");
-  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+  /* the backdrop is the canvas's CSS background (index.html), which the browser paints once; each frame only clears the canvas */
+  ctx.clearRect(0, 0, W, H);
   const O = A.O; if (!O) return;
   const lit = litSet();
 
@@ -148,35 +304,47 @@ function draw(){
      loses precision at the very large zooms needed for deep moons */
   const k = c.k, X = b => c.x + k * b.x, Y = b => c.y + k * b.y;
   const onScreen = (x, y, r) => x + r > -40 && y + r > -40 && x - r < W + 40 && y - r < H + 40;
-  /* orbits: hairlines, one per body */
-  for (const b of O.order) for (const ring of b.rings) {
-    const x = X(b), y = Y(b), rr = (ring.rd ?? ring.r) * k;
-    if (rr < 1.5 || !onScreen(x, y, rr) || rr > 4 * Math.hypot(W, H) + Math.hypot(x - W / 2, y - H / 2)) continue;
-    const on = lit?.rings.has(ring.id);
-    ctx.globalAlpha = lit ? (on ? 0.3 : 0.025) : (b.depth === 0 ? 0.07 : 0.055);
-    ctx.strokeStyle = colour(ring.color); ctx.lineWidth = on ? 1 : 0.6;
-    ctx.setLineDash(ring.grp.folded ? [3, 4] : []);
-    /* an open body's own orbit stops at the edge of its system, so the line never runs through its moons */
-    const m = ring.members[0], mr = m.sysR ? (m.sysR + m.size) * k : 0, md = Math.hypot(X(m) - x, Y(m) - y);
-    ctx.beginPath();
-    if (mr > 2 && md > 0 && mr < 2 * rr) { const ma = Math.atan2(Y(m) - y, X(m) - x), hw = 2 * Math.asin(Math.min(1, mr / (2 * rr))); ctx.arc(x, y, rr, ma + hw, ma - hw + Math.PI * 2); }
-    else if (!(mr > 2 && mr >= 2 * rr)) ctx.arc(x, y, rr, 0, Math.PI * 2);
-    ctx.stroke();
+  /* a line's colour, width and dash are set only when they change: hundreds of orbits and links share a few looks */
+  let penC, penW, penD;
+  const pen = (col, w, d) => { if (col !== penC) ctx.strokeStyle = penC = col; if (w !== penW) ctx.lineWidth = penW = w; if (d !== penD) ctx.setLineDash(penD = d); };
+  /* orbits: hairlines, one per body. Seen from afar, a big group's orbits lie closer together than a pixel or two and
+     cannot be told apart, so an orbit within 2 px of the last one drawn the same way (lit or not, dashed or not) is left
+     out. Radii are compared as drawn: while orbits grow or shrink (ring.rd) they need not be in order.
+     Lit orbits are all drawn, so a lit system keeps its glow, unless hundreds are lit at once. */
+  const lastR = [0, 0, 0, 0], thinLit = !!lit && lit.rings.size > 300;
+  for (const b of O.order) {
+    if (!b.rings.length) continue;
+    const x = X(b), y = Y(b);
+    lastR.fill(-Infinity);
+    for (const ring of b.rings) {
+      const rr = (ring.rd ?? ring.r) * k;
+      if (rr < 1.5 || !onScreen(x, y, rr)) continue;
+      const on = lit?.rings.has(ring.id), look = (on ? 2 : 0) + (ring.grp.folded ? 1 : 0);
+      if ((!on || thinLit) && Math.abs(rr - lastR[look]) < 2) continue;
+      /* an open body's own orbit stops at the edge of its system, so the line never runs through its moons */
+      const m = ring.members[0], mr = m.sysR ? (m.sysR + m.size) * k : 0;
+      if (mr > 2 && mr >= 2 * rr) continue;
+      const mx = X(m), my = Y(m), md = Math.hypot(mx - x, my - y);
+      let from = 0, to = TAU;
+      if (mr > 2 && md > 0) { const ma = Math.atan2(my - y, mx - x), hw = 2 * Math.asin(Math.min(1, mr / (2 * rr))); from = ma + hw; to = ma - hw + Math.PI * 2; }
+      ctx.globalAlpha = lit ? (on ? 0.3 : 0.025) : (b.depth === 0 ? 0.07 : 0.055);
+      pen(colour(ring.color), on ? 1 : 0.6, ring.grp.folded ? DASH_FOLDED : NO_DASH);
+      if (strokeArc(x, y, rr, from, to, ring.grp.folded ? 7 : 0)) lastR[look] = rr;
+    }
   }
-  ctx.setLineDash([]);
   /* edges: curved, like Sigma's curved edge program */
   for (const l of O.links) {
     const on = lit?.links.has(l.id), ax = X(l.a), ay = Y(l.a), bx = X(l.b), by = Y(l.b);
-    if (Math.max(ax, bx) < -40 || Math.max(ay, by) < -40 || Math.min(ax, bx) > W + 40 || Math.min(ay, by) > H + 40) continue;
-    if (Math.hypot(bx - ax, by - ay) < 1) continue;
+    const dx = bx - ax, dy = by - ay, bend = l.kind === "spoke" ? 0.1 : 0.26, cx = (ax + bx) / 2 - dy * bend, cy = (ay + by) / 2 + dx * bend;
+    /* the curve lies inside the triangle of its ends and its control point, so that decides whether it can show:
+       by its ends alone, a curve whose bulge crosses the edge of the screen would pop in and out */
+    if (Math.max(ax, bx, cx) < -40 || Math.max(ay, by, cy) < -40 || Math.min(ax, bx, cx) > W + 40 || Math.min(ay, by, cy) > H + 40) continue;
+    if (Math.hypot(dx, dy) < 1) continue;
     ctx.globalAlpha = lit ? (on ? 0.95 : 0.04) : (l.kind === "spoke" ? 0.32 : 0.45);
-    ctx.strokeStyle = colour(l.color); ctx.lineWidth = on ? 2.4 : l.kind === "spoke" ? 0.9 : 1.1;
-    ctx.setLineDash(l.kind === "spoke" ? [] : [5, 5]);
-    const dx = bx - ax, dy = by - ay, bend = l.kind === "spoke" ? 0.1 : 0.26;
-    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo((ax + bx) / 2 - dy * bend, (ay + by) / 2 + dx * bend, bx, by);
-    ctx.stroke();
+    pen(colour(l.color), on ? 2.4 : l.kind === "spoke" ? 0.9 : 1.1, l.kind === "spoke" ? NO_DASH : DASH_REF);
+    strokeCurve(ax, ay, cx, cy, bx, by, l.kind === "spoke" ? 0 : 10);
   }
-  ctx.setLineDash([]);
+  ctx.setLineDash(NO_DASH);
   /* bodies that are folding away */
   for (const g of O.ghosts) { const x = X(g), y = Y(g), r = g.size * k * g.life; if (r < 0.3 || !onScreen(x, y, r)) continue; ctx.globalAlpha = Math.max(0, g.life) * 0.6 * (lit ? 0.2 : 1); ctx.fillStyle = colour(g.color); ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); }
   /* bodies */
@@ -193,7 +361,7 @@ function draw(){
     ctx.globalAlpha = on ? 1 : 0.22;
     if (b.type === "group") {
       ctx.fillStyle = "#101018"; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
-      ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.setLineDash([3, 2.5]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.setLineDash(DASH_GROUP); ctx.stroke(); ctx.setLineDash(NO_DASH);
       drawCount(n, x, y, r, "#f5f5f7");
     } else {
       ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
@@ -203,7 +371,7 @@ function draw(){
     if (b.isOpen && b.depth > 0 && r > 2) { ctx.globalAlpha = on ? 0.6 : 0.15; ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(x, y, r + 3.5, 0, 7); ctx.stroke(); }
     if (b.id === A.hover || b.id === A.sel) { ctx.globalAlpha = b.id === A.sel ? 0.9 : 0.5; ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 4, 0, 7); ctx.stroke(); }
   }
-  /* search hit: a cyan pulse; it ends when its time is up or its body is folded away, or the frame loop would never stop */
+  /* search hit: a cyan pulse; it ends when its time is up or its body is folded away */
   const P = A.pulse, pb = P && O.bodies.get(P.id);
   if (P) {
     const t = (performance.now() - P.t0) / 1000;
@@ -216,9 +384,15 @@ function draw(){
   ctx.globalAlpha = 1;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   drawLabels(lit);
-  $("status").textContent = A.src ? `${O.order.filter(b => b.type !== "group").length} of ${A.src.total.toLocaleString()} elements shown · ${O.order.reduce((s, b) => s + b.rings.length, 0)} orbits` : "";
-  $("zoomPct").textContent = A.src ? `zoom ${Math.round(c.k * 100)}%` : "";
+  /* the counts change only with a rebuild (a new order); writing text to the page, even the same text,
+     makes the browser restyle and lay it out again */
+  if (counted !== O.order) { counted = O.order; countText = A.src ? `${O.order.filter(b => b.type !== "group").length} of ${A.src.total.toLocaleString()} elements shown · ${O.order.reduce((s, b) => s + b.rings.length, 0)} orbits` : ""; }
+  setText("status", countText);
+  setText("zoomPct", A.src ? `zoom ${Math.round(c.k * 100)}%` : "");
 }
+let counted = null, countText = "";
+const shownText = {};
+function setText(id, t){ if (shownText[id] !== t) { shownText[id] = t; $(id).textContent = t; } }
 const S = (b) => [A.cam.x + A.cam.k * b.x, A.cam.y + A.cam.k * b.y];
 /* the smallest on-screen radius that still holds a number of this many digits */
 const countR = n => Math.max(5.5, String(n).length * 2.4 + 1.5);
@@ -232,62 +406,90 @@ function drawCount(n, x, y, r, ink){
   ctx.fillText(t, x, y + 0.5); ctx.textAlign = "left";
 }
 
+/* Where labels have gone, and the bodies' discs, filed in a coarse grid over the screen: a new label is checked only against
+   those near it, not against every one placed so far. A label is placed only if its top-left corner is on screen (give or
+   take a margin), so a rectangle wholly outside that area can never be in the way, and is not filed. */
+const CELL = 64;
+function labelGrid(){
+  const x0 = -50, y0 = -20, x1 = W + 50, y1 = H + 20, cols = Math.floor((x1 - x0) / CELL) + 1, rows = Math.floor((y1 - y0) / CELL) + 1, cells = new Array(cols * rows);
+  const col = x => Math.min(cols - 1, Math.max(0, Math.floor((x - x0) / CELL))), row = y => Math.min(rows - 1, Math.max(0, Math.floor((y - y0) / CELL)));
+  return {
+    /* a rectangle that overlaps a filed one shares a cell with it: the one holding the top-left corner of their overlap */
+    free(x, y, w, h){
+      if (x < x0 || y < y0 || x > x1 || y > y1) return false;
+      for (let j = row(y), j1 = row(y + h); j <= j1; j++) for (let i = col(x), i1 = col(x + w); i <= i1; i++) {
+        const list = cells[j * cols + i];
+        if (list) for (const p of list) if (x < p.x + p.w && x + w > p.x && y < p.y + p.h && y + h > p.y) return false;
+      }
+      return true;
+    },
+    add(x, y, w, h){
+      if (x + w < x0 || y + h < y0 || x > x1 || y > y1) return;
+      const p = { x, y, w, h };
+      for (let j = row(y), j1 = row(y + h); j <= j1; j++) for (let i = col(x), i1 = col(x + w); i <= i1; i++) (cells[j * cols + i] || (cells[j * cols + i] = [])).push(p);
+    }
+  };
+}
 /* Labels are placed most important first; one that would overlap a placed label tries other sides, then is skipped. */
 function drawLabels(lit){
-  const O = A.O, k = A.cam.k, placed = [];
-  const free = r => { if (r.x < -50 || r.y < -20 || r.x > W + 50 || r.y > H + 20) return false; for (const p of placed) if (r.x < p.x + p.w && r.x + r.w > p.x && r.y < p.y + p.h && r.y + r.h > p.y) return false; return true; };
+  const O = A.O, c = A.cam, k = c.k, grid = labelGrid(), free = grid.free;
   const pill = (x, y, w, h, stroke, lw = 1) => { ctx.fillStyle = "#12121c"; ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.beginPath(); ctx.roundRect(x, y, w, h, 4); ctx.fill(); ctx.stroke(); };
+  /* how far from its centre a body's label sits: its disc as drawn, or the circle that holds its count */
+  const reach = b => { const n = b.type === "group" ? b.count : b.kids || 0; return Math.max(b.size * k * bodyScale(b, lit), n > 0 ? countR(n) : 0); };
+  /* a label's text, font, width and height */
+  const labelText = (b, hot) => { const t = b.type === "group" ? `${b.label} · ${b.count}` : clip(b.label, hot ? 52 : 30), font = hot || b.depth <= 1 ? MONO : MONO_S; return [t, font, textW(t, font) + (hot ? 16 : 4), hot ? 21 : 15]; };
   /* bodies' circles block labels too, so names never sit on top of a planet */
-  for (const b of O.order) { const [x, y] = S(b), n = b.type === "group" ? b.count : b.kids || 0, r = Math.max(b.size * k * bodyScale(b, lit), n > 0 ? countR(n) : 0); if (r > 3) placed.push({ x:x - r, y:y - r, w:2 * r, h:2 * r }); }
+  for (const b of O.order) { const r = reach(b); if (r > 3) grid.add(c.x + k * b.x - r, c.y + k * b.y - r, 2 * r, 2 * r); }
   const cands = [];
   for (const b of O.order) {
     const on = lit?.nodes.has(b.id);
     if (lit && !on && b.depth > 0) continue;
-    const r = b.size * k;
-    if (!on && b.depth > 1 && r < 3.2) continue;
+    if (!on && b.depth > 1 && b.size * k < 3.2) continue;
+    const x = c.x + k * b.x, y = c.y + k * b.y, r = reach(b);
+    /* Every place tried for a label (beside, below or above its body) must start on screen. A body too far off screen for
+       any of them is passed over; the bounds below are those places' own, so no label that could be placed is missed.
+       The sun's and the lit body's labels are always placed. */
+    if (b.depth > 0 && !(lit && b.id === lit.d.id)) {
+      if (x < -56 - r || y < -24 - r || y > H + 24 + r + (on ? 21 : 15)) continue;
+      if (x > W + 56 + r && x > W + 56 + r + labelText(b, on)[2]) continue;
+    }
     const pri = lit && b.id === lit.d.id && b.depth ? -2e9 : b.depth === 0 ? -1e9 : (on ? 0 : 1e6) + (b.id === A.sel || b.id === A.hover ? 0 : 1e5) + b.depth * 1e3 - b.size;
-    cands.push([pri, b]);
+    cands.push([pri, b, x, y, r]);
   }
   cands.sort((p, q) => p[0] - q[0]);
   /* the sun's name sits under it */
   ctx.textBaseline = "middle";
-  for (const [, b] of cands) {
-    const cn = b.type === "group" ? b.count : b.kids || 0;
-    const [x, y] = S(b), r = Math.max(b.size * k * bodyScale(b, lit), cn > 0 ? countR(cn) : 0), hot = lit?.nodes.has(b.id), main = lit && b.id === lit.d.id;
+  for (const [, b, x, y, r] of cands) {
+    const hot = lit?.nodes.has(b.id), main = lit && b.id === lit.d.id;
     if (b.depth === 0) {
-      const t = clip(b.label, 40), w = textW(t, SUN) + 18, h = 24;
-      const rect = { x:x - w / 2, y:y + r + 8, w, h };
-      if (!free(rect) && lit) continue;
-      placed.push(rect); ctx.font = SUN; pill(rect.x, rect.y, w, h, colour(b.color), 2);
-      ctx.fillStyle = "#f5f5f7"; ctx.textAlign = "center"; ctx.fillText(t, x, rect.y + h / 2 + 0.5); ctx.textAlign = "left";
+      const t = clip(b.label, 40), w = textW(t, SUN) + 18, h = 24, rx = x - w / 2, ry = y + r + 8;
+      if (!free(rx, ry, w, h) && lit) continue;
+      grid.add(rx, ry, w, h); ctx.font = SUN; pill(rx, ry, w, h, colour(b.color), 2);
+      ctx.fillStyle = "#f5f5f7"; ctx.textAlign = "center"; ctx.fillText(t, x, ry + h / 2 + 0.5); ctx.textAlign = "left";
       continue;
     }
-    const t = b.type === "group" ? `${b.label} · ${b.count}` : clip(b.label, hot ? 52 : 30);
-    const font = hot || b.depth <= 1 ? MONO : MONO_S, w = textW(t, font) + (hot ? 16 : 4), h = hot ? 21 : 15;
+    const [t, font, w, h] = labelText(b, hot);
     /* the lit body's name sits in a pill above it, as GitNexus draws a hovered node; others go beside */
     const above = [x - w / 2, y - r - 8 - h], tries = main ? [above, [x - w / 2, y + r + 8]] : [[x + r + 6, y - h / 2], [x - r - 6 - w, y - h / 2], [x - w / 2, y + r + 4], [x - w / 2, y - r - 4 - h]];
     for (const [lx, ly] of tries) {
-      const rect = { x:lx, y:ly, w, h };
-      if (!free(rect) && !main) continue;
-      placed.push(rect);
+      if (!free(lx, ly, w, h) && !main) continue;
+      grid.add(lx, ly, w, h);
       ctx.font = font;
       if (hot) { pill(lx, ly, w, h, colour(b.color) + (main ? "" : "99"), main ? 2 : 1); ctx.fillStyle = "#f5f5f7"; ctx.fillText(t, lx + 8, ly + h / 2 + 0.5); }
       else { ctx.fillStyle = b.depth <= 1 ? "rgba(228,228,237,.9)" : "rgba(136,136,160,.9)"; ctx.fillText(t, lx + 2, ly + h / 2 + 0.5); }
       break;
     }
   }
-  /* link labels on the lit chain, then orbit names */
-  if (lit) for (const l of O.links) {
+  /* labels on the lit body's id-reference lines (none when more than 10 lines are lit), then orbit names */
+  if (lit && lit.links.size <= 10) for (const l of O.links) {
     if (!lit.links.has(l.id) || !l.short) continue;
-    const big = lit.links.size > 10;
-    if (big && !(l.kind === "spoke" && lit.onChain.has(l.a.id) && lit.onChain.has(l.b.id))) continue;
     const [ax, ay] = S(l.a), [bx, by] = S(l.b), mx = (ax + bx) / 2, my = (ay + by) / 2;
     const w = textW(l.short, MONO_S) + 10, h = 17;
     for (const [dx, dy] of [[0, 0], [0, -16], [0, 16], [0, -32], [0, 32], [w * 0.6, 0], [-w * 0.6, 0]]) {
-      const rect = { x:mx - w / 2 + dx, y:my - h / 2 + dy, w, h };
-      if (!free(rect)) continue;
-      placed.push(rect); pill(rect.x, rect.y, w, h, colour(l.color) + "77");
-      ctx.font = MONO_S; ctx.fillStyle = colour(l.color); ctx.fillText(l.short, rect.x + 5, rect.y + h / 2 + 0.5);
+      const rx = mx - w / 2 + dx, ry = my - h / 2 + dy;
+      if (!free(rx, ry, w, h)) continue;
+      grid.add(rx, ry, w, h); pill(rx, ry, w, h, colour(l.color) + "77");
+      ctx.font = MONO_S; ctx.fillStyle = colour(l.color); ctx.fillText(l.short, rx + 5, ry + h / 2 + 0.5);
       break;
     }
   }
@@ -296,11 +498,10 @@ function drawLabels(lit){
     if (!ring.first || ring.grp.count < 2 && !ring.grp.folded || !(b.depth === 0 || lit?.rings.has(ring.id) || b.id === A.sel || (lit && b.id === lit.d.id))) continue;
     const [x, y] = S(b), rr = ring.r * k;
     if (rr < 40) continue;
-    const g = ring.grp, t = `${g.title} · ${g.count}${g.folded ? " (folded)" : ""}`, w = textW(t, MONO_S) + 6;
-    const rect = { x:x - w / 2, y:y - rr - 8, w, h:15 };
-    if (!free(rect)) continue;
-    placed.push(rect); ctx.globalAlpha = lit && !lit.rings.has(ring.id) ? 0.25 : 0.85;
-    ctx.font = MONO_S; ctx.fillStyle = colour(ring.color); ctx.fillText(t, rect.x + 3, rect.y + 7.5); ctx.globalAlpha = 1;
+    const g = ring.grp, t = `${g.title} · ${g.count}${g.folded ? " (folded)" : ""}`, w = textW(t, MONO_S) + 6, rx = x - w / 2, ry = y - rr - 8;
+    if (!free(rx, ry, w, 15)) continue;
+    grid.add(rx, ry, w, 15); ctx.globalAlpha = lit && !lit.rings.has(ring.id) ? 0.25 : 0.85;
+    ctx.font = MONO_S; ctx.fillStyle = colour(ring.color); ctx.fillText(t, rx + 3, ry + 7.5); ctx.globalAlpha = 1;
   }
 }
 
@@ -347,7 +548,7 @@ canvas.addEventListener("pointermove", e => {
     P.x = e.offsetX; P.y = e.offsetY; return;
   }
   A.mx = e.offsetX; A.my = e.offsetY; A.mslop = e.pointerType === "touch" ? 16 : 4;
-  setHover(hit(e.offsetX, e.offsetY, A.mslop), e);
+  setHover(hit(e.offsetX, e.offsetY, A.mslop));
 });
 function endPointer(e){
   pts.delete(e.pointerId);
@@ -387,7 +588,7 @@ canvas.addEventListener("keydown", e => {
 });
 
 /* ---------------- hover, tooltip, selection ---------------- */
-function setHover(b, e){
+function setHover(b){
   const id = b ? b.id : null;
   canvas.classList.toggle("pointing", !!b);
   if (id === A.hover) return;
@@ -410,9 +611,9 @@ function headerHtml(h, max = 12, per = 8){
 }
 function tipHtml(b){
   const n = A.src.node(b.id), kind = b.type === "group" ? `${b.count} × ${esc(b.label)} (folded)` : esc(n?.kind || "");
-  const act = b.type === "group" ? "Click to spread them into a full orbit" : A.sel !== b.id ? "Click to centre it" + (canToggle(b) ? "; click again to show its child elements" : "") : canToggle(b) ? (b.isOpen ? "Click again to fold its child elements" : "Click again to show its child elements") : "";
+  const act = b.type === "group" ? "Click to spread them out" : A.sel !== b.id ? "Click to centre it" + (canToggle(b) ? "; click again to show its child elements" : "") : canToggle(b) ? (b.isOpen ? "Click again to fold its child elements" : "Click again to show its child elements") : "";
   const cross = A.O.links.filter(l => l.kind !== "spoke" && (l.a === b || l.b === b)).length;
-  const head = !b.parent && A.src.header ? headerHtml(A.src.header()) : "";
+  const head = b.parent ? "" : headerHtml(A.src.header());
   return `<b>${esc(b.label)}</b><span class="s">${kind}</span>${head}${b.parent ? `<div class="c">${chainText(b)}</div>` : ""}${cross ? `<div class="c">${cross} more link${cross === 1 ? "" : "s"} (dashed)</div>` : ""}${act ? `<div class="c">${act}</div>` : ""}`;
 }
 /* Try spots all round the body; keep the one covering least of it, its lit neighbours and the panels. */
@@ -467,7 +668,6 @@ function toggleOpen(b){
   const nb = O.bodies.get(b.id);
   select(nb); followBody(nb, opened);
 }
-function rebuildAndKeep(){ A.O.build(); const s = A.O.bodies.get(A.sel); if (s) renderSide(s); else select(null); kick(); }
 
 /* ---------------- side panel ---------------- */
 function renderSide(b){
@@ -492,7 +692,7 @@ function renderSide(b){
   if (info?.linksIn?.length) parts.push(`<div><h3>Pointed at by</h3><div class="list">${info.linksIn.slice(0, 30).map(o => linkRow(o.id, o.text, o.color)).join("")}</div></div>`);
   if (info?.tag) parts.push(`<div class="ren">${renameForm(info.tag, "renameSide")}</div>`);
   const acts = [];
-  if (b.type === "group") acts.push(`<button class="btn primary" type="button" data-act="spread">Spread into a full orbit</button>`);
+  if (b.type === "group") acts.push(`<button class="btn primary" type="button" data-act="spread">Spread them out</button>`);
   else if (canToggle(b)) acts.push(`<button class="btn primary" type="button" data-act="toggle">${b.isOpen ? "Fold its child elements" : "Show its child elements"}</button>`);
   acts.push(`<button class="btn" type="button" data-act="close">Close</button>`);
   parts.push(`<div class="acts">${acts.join("")}</div>`);
@@ -512,20 +712,28 @@ $("side").addEventListener("click", e => {
 function reveal(id){
   A.O.reveal(A.src.pathTo(id)); A.O.build();
   const b = A.O.bodies.get(id);
-  if (!b) { note("That element is not in this file."); return; }
+  if (!b) { note("That element is not in this file."); kick(); return; }
   select(b); followBody(b, true); A.pulse = { id:b.id, t0:performance.now() };
   if (b.parent) A.followK = Math.min(1e5, Math.max(A.followK || A.cam.k, 8 / Math.max(1e-4, b.size)));
 }
-let resIdx = -1;
-$("q").addEventListener("input", () => showResults());
+let resIdx = -1, qTimer = 0;
+/* Typing searches after a short pause (longer in a big file), so fast typing does not search, and lay out the results,
+   for every letter. Enter and the arrow keys use the results for everything typed so far. */
+$("q").addEventListener("input", () => {
+  clearTimeout(qTimer);
+  qTimer = setTimeout(() => { qTimer = 0; if (document.activeElement === $("q")) showResults(); }, A.src && A.src.total > 20000 ? 150 : 50);
+});
+const searchNow = () => { if (qTimer) { clearTimeout(qTimer); qTimer = 0; showResults(); } };
+const searchCancel = () => { clearTimeout(qTimer); qTimer = 0; };
 $("q").addEventListener("focus", () => { if ($("q").value.trim()) showResults(); });
 $("q").addEventListener("keydown", e => {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter") searchNow();
   const items = [...$("results").querySelectorAll("button[data-r]")];
   if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); resIdx = Math.max(0, Math.min(items.length - 1, resIdx + (e.key === "ArrowDown" ? 1 : -1))); items.forEach((x, i) => x.classList.toggle("on", i === resIdx)); items[resIdx]?.scrollIntoView({ block:"nearest" }); }
   else if (e.key === "Enter") { if ($("results").hidden || !$("q").value.trim()) return; const x = items[Math.max(0, resIdx)]; if (x) x.click(); }
-  else if (e.key === "Escape") { $("results").hidden = true; }
+  else if (e.key === "Escape") { searchCancel(); $("results").hidden = true; }
 });
-document.addEventListener("click", e => { if (!e.target.closest(".searchwrap")) $("results").hidden = true; });
+document.addEventListener("click", e => { if (!e.target.closest(".searchwrap")) { searchCancel(); $("results").hidden = true; } });
 function showResults(){
   const box = $("results"), q = $("q").value;
   if (!A.src || !q.trim()) { box.hidden = true; box.innerHTML = ""; return; }
@@ -557,7 +765,7 @@ function decode(buf){
 function setSource(src){
   A.src = src; A.O = new XO.Orbits(src); A.sel = null; A.hover = null; A.follow = null; A.followK = null;
   $("side").hidden = true; hideTip();
-  /* a plain XML file starts as one circle, the root element named after the file; click it to see its children */
+  /* a file starts as one circle, the root element named after the file; click it to centre it, click again to see its children */
   A.O.build();
   for (let i = 0; i < 90; i++) A.O.step(1 / 30, false);
   renderLegend(); renderNames();
@@ -595,8 +803,8 @@ async function loadSample(url = SAMPLE){
   try { const r = await fetch(url); if (!r.ok) throw new Error("HTTP " + r.status); const buf = await r.arrayBuffer(); if (A.userLoaded || my !== loadSeq) return; loadText(decode(buf), url); }
   catch (err) {
     if (my !== loadSeq) return;
-    if (A.src) { note(location.protocol === "file:" ? "Examples need this folder served (./serve.sh). Open a file instead." : "Could not load the example: " + err.message); return; }
-    { $("welcome").hidden = false; if (location.protocol === "file:") { $("err").textContent = "Opened straight from disk, the sample cannot load. Open a file instead, or serve this folder (./serve.sh)."; $("err").hidden = false; } } }
+    if (A.src) { note(location.protocol === "file:" ? "Examples need this folder served (start.bat on Windows, ./serve.sh on macOS or Linux). Open a file instead." : "Could not load the example: " + err.message); return; }
+    { $("welcome").hidden = false; if (location.protocol === "file:") { $("err").textContent = "Opened straight from disk, the sample cannot load. Open a file instead, or serve this folder (start.bat on Windows, ./serve.sh on macOS or Linux)."; $("err").hidden = false; } } }
 }
 
 /* ---------------- legend ---------------- */
@@ -728,7 +936,7 @@ function onRename(e){
 }
 function onRenameKey(e){ if (e.key === "Enter" && e.target.matches("input[data-tag]")) { e.preventDefault(); e.target.parentElement.querySelector('button[data-nact="save"]').click(); } }
 $("namesBox").addEventListener("click", onRename, true);
-for (const id of ["side"]) $(id).addEventListener("click", onRename, true);
+$("side").addEventListener("click", onRename, true);
 for (const id of ["renameArea", "side"]) $(id).addEventListener("keydown", onRenameKey);
 
 /* ---------------- controls ---------------- */
@@ -765,6 +973,8 @@ document.addEventListener("paste", e => {
 window.addEventListener("resize", () => { resize(); });
 /* text widths measured before the web fonts arrived are wrong; measure again once they are in */
 document.fonts?.ready.then(() => { widths.clear(); kick(); });
+/* a canvas the browser dropped (to save memory, say, while in the background) comes back blank: draw it again */
+canvas.addEventListener("contextrestored", kick);
 /* the header wraps to two rows on mid-size screens; everything placed under it follows its real height */
 new ResizeObserver(() => document.documentElement.style.setProperty("--top", $("top").getBoundingClientRect().bottom + "px")).observe($("top"));
 if (innerWidth < 1100) $("legend").open = false;
