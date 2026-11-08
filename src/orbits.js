@@ -1,20 +1,20 @@
 /* The orbit engine. Who orbits whom is fixed by the source and never changes;
    where a body is right now is physics: it springs toward its spot on its parent's orbit,
    can be dragged away, and drifts back when let go. Its moons follow it wherever it goes.
-   Bodies keep their own size at every depth (the source sets flatSize), and orbits still clear each body's
-   whole system. Without flatSize each level down is drawn at half the scale of the one above. */
+   Bodies keep their own size at every depth; the gaps between orbits halve at each level down,
+   and every orbit still clears each body's whole system. */
 (function(){
 "use strict";
 const XO = window.XO;
-const LEVEL = 0.5;                       /* scale of a body's moons relative to the body's own level */
+const LEVEL = 0.5;                       /* orbit gaps one level down, relative to the level above */
 const unit = depth => Math.pow(LEVEL, Math.max(0, depth - 1));
 const MAX_UNFOLDED = 48;                 /* more children than this and the biggest groups fold */
 
 class Orbits {
   constructor(src){
     this.src = src;
-    /* bodies whose own orbits are shown; a plain XML file starts as one closed circle */
-    this.open = new Set(src.startOpen === false ? [] : [src.rootId]);
+    /* bodies whose own orbits are shown; a file starts as one closed circle */
+    this.open = new Set();
     this.spread = new Set();            /* folded groups the user has spread out */
     this.t = 0;
     this.bodies = new Map();            /* id → body; kept across rebuilds so positions carry over */
@@ -38,7 +38,6 @@ class Orbits {
       const n = q.shift();
       if (n.type === "group" || !this.open.has(n.id) || !src.canOpen(n.id)) continue;
       n.isOpen = true;
-      const u = unit(n.depth + 1);
       /* first pass: one plan per group of children */
       const plan = [];
       for (const g of src.groups(n.id)) if (g.entries.length) plan.push({ g, fresh:g.entries, gid:n.id + ">" + g.key, fold:false });
@@ -53,14 +52,14 @@ class Orbits {
       for (const { g, fresh, gid, fold } of plan) {
         const members = [];
         if (fold) {
-          const gb = mk(gid, { type:"group", label:g.title, color:g.color, size:src.flatSize ? 10 : (n.depth ? 11 : 14) * u, count:fresh.length, ids:new Set(fresh.map(f => f.id)) },
+          const gb = mk(gid, { type:"group", label:g.title, color:g.color, size:10, count:fresh.length, ids:new Set(fresh.map(f => f.id)) },
             { depth:n.depth + 1, parent:n });
           for (const f of fresh) claimed.set(f.id, gb);
           members.push(gb);
           links.push({ id:"s|" + gid, a:n, b:gb, color:g.color, kind:"spoke" });
         } else for (const e of fresh) {
           const nd = src.node(e.id); if (!nd) continue;
-          const b = mk(e.id, nd, { type:"body", depth:n.depth + 1, parent:n, size:src.flatSize ? nd.size : Math.max(1.2 * u, nd.size * u * (n.depth === 0 ? 1 : 0.85)) });
+          const b = mk(e.id, nd, { type:"body", depth:n.depth + 1, parent:n });
           members.push(b); q.push(b);
           links.push({ id:"s|" + e.id, a:n, b, color:g.color, short:e.short, label:e.label, kind:"spoke" });
         }
@@ -70,7 +69,7 @@ class Orbits {
         members.forEach((m, j) => n.rings.push({ id:gid + "#" + j, grp, color:g.color, members:[m], center:n, first:j === 0 }));
       }
     }
-    for (const r of order) for (const ref of (src.refs ? src.refs(r.id) : [])) {
+    for (const r of order) for (const ref of src.refs(r.id)) {
       const t = next.get(ref.to) || claimed.get(ref.to);
       if (t && t !== r) links.push({ id:`r|${r.id}|${ref.to}`, a:r, b:t, color:ref.color, short:ref.short, label:ref.label, kind:"cross" });
     }

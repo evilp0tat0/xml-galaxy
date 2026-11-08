@@ -412,7 +412,7 @@ function tipHtml(b){
   const n = A.src.node(b.id), kind = b.type === "group" ? `${b.count} × ${esc(b.label)} (folded)` : esc(n?.kind || "");
   const act = b.type === "group" ? "Click to spread them into a full orbit" : A.sel !== b.id ? "Click to centre it" + (canToggle(b) ? "; click again to show its child elements" : "") : canToggle(b) ? (b.isOpen ? "Click again to fold its child elements" : "Click again to show its child elements") : "";
   const cross = A.O.links.filter(l => l.kind !== "spoke" && (l.a === b || l.b === b)).length;
-  const head = !b.parent && A.src.header ? headerHtml(A.src.header()) : "";
+  const head = b.parent ? "" : headerHtml(A.src.header());
   return `<b>${esc(b.label)}</b><span class="s">${kind}</span>${head}${b.parent ? `<div class="c">${chainText(b)}</div>` : ""}${cross ? `<div class="c">${cross} more link${cross === 1 ? "" : "s"} (dashed)</div>` : ""}${act ? `<div class="c">${act}</div>` : ""}`;
 }
 /* Try spots all round the body; keep the one covering least of it, its lit neighbours and the panels. */
@@ -727,7 +727,7 @@ function onRename(e){
 }
 function onRenameKey(e){ if (e.key === "Enter" && e.target.matches("input[data-tag]")) { e.preventDefault(); e.target.parentElement.querySelector('button[data-nact="save"]').click(); } }
 $("namesBox").addEventListener("click", onRename, true);
-for (const id of ["side"]) $(id).addEventListener("click", onRename, true);
+$("side").addEventListener("click", onRename, true);
 for (const id of ["renameArea", "side"]) $(id).addEventListener("keydown", onRenameKey);
 
 /* ---------------- controls ---------------- */

@@ -19,7 +19,6 @@ XO.clip = clip;
 const SEEDS = ["#ff4d4f","#3b9bff","#2fd67b","#ffd23f","#b67cff","#ff8a1f","#ff6bcb","#a3e635","#f5f5f5","#c08457"];
 /* reserved for id-reference lines; no tag gets it, and generated colours keep away from it */
 const REF_COLOUR = "#22d3ee";
-const PALETTE = SEEDS;
 const toLin = v => (v /= 255) <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
 const toByte = v => Math.round(255 * Math.min(1, Math.max(0, v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055)));
 function hexLab(hex){
@@ -184,9 +183,7 @@ function xmlSource(doc, fileName){
   const score = r => Math.round(1 + 99 * r.kids.length / maxKids);
   const size = r => 3 + 25 * (score(r) - 1) / 99;
   return {
-    fileName, palette, total:E.length, rootId:id(E[0]),
-    title:fileTitle, rootTag:R0.tag, startOpen:false, header, flatSize:true,
-    has: x => !!rec(x),
+    palette, total:E.length, rootId:id(E[0]), title:fileTitle, header,
     tagOf: x => rec(x)?.tag || "",
     node(x){ const r = rec(x); return r && { id:x, label:labelOf(r), color:"t:" + r.tag, size:size(r), kind:"<" + dn(r.tag) + ">", tag:r.tag, kids:r.kids.length }; },
     canOpen: x => { const r = rec(x); return !!r && r.kids.length > 0; },
@@ -236,5 +233,5 @@ function xmlSource(doc, fileName){
   }
 }
 
-XO.sources = { xmlSource, PALETTE, colours, inkFor };
+XO.sources = { xmlSource, inkFor };
 })();
