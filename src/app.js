@@ -630,10 +630,9 @@ const NAMES_KEY = "xml-viewer.names";
 (function loadNames(){
   try {
     const v = JSON.parse(localStorage.getItem(NAMES_KEY) || "null");
-    if (v && ["full", "shorter", "shortest"].includes(v.style)) XO.names.style = v.style;
+    if (v && Array.isArray(v.hide)) XO.names.hide = [...new Set(v.hide.filter(p => typeof p === "string" && p.trim()).map(p => p.trim()))];
     if (v && v.custom) for (const [k, n] of Object.entries(v.custom)) if (typeof n === "string" && n.trim()) XO.names.custom.set(k, n.trim());
   } catch {}
-  const r = document.querySelector(`input[name="nstyle"][value="${XO.names.style}"]`); if (r) r.checked = true;
 })();
 /* the explanations in the Display names box: shown unless the viewer hides them */
 const INFO_KEY = "xml-viewer.namesInfo";
@@ -643,13 +642,12 @@ function setNamesInfo(on){
   try { localStorage.setItem(INFO_KEY, on ? "on" : "off"); } catch {}
 }
 try { setNamesInfo(localStorage.getItem(INFO_KEY) !== "off"); } catch { setNamesInfo(true); }
-function saveNames(){ try { localStorage.setItem(NAMES_KEY, JSON.stringify({ style:XO.names.style, custom:Object.fromEntries(XO.names.custom) })); } catch {} }
-/* an example tag from this file whose three styles all differ, to show what each style does */
-function exampleTag(){
-  const N = XO.names, tags = A.src?.mode === "tree" ? [...A.src.palette.values()].filter(v => v.tag).map(v => v.tag) : [];
+function saveNames(){ try { localStorage.setItem(NAMES_KEY, JSON.stringify({ hide:XO.names.hide, custom:Object.fromEntries(XO.names.custom) })); } catch {} }
+/* the tags of this file, root first */
+function fileTags(){
+  const tags = A.src?.mode === "tree" ? [...A.src.palette.values()].filter(v => v.tag).map(v => v.tag) : [];
   if (A.doc) tags.unshift(A.doc.documentElement.nodeName);
-  const differ = t => { const a = N.styled(t, "full"), b = N.styled(t, "shorter"), c = N.styled(t, "shortest"); return a !== b && b !== c; };
-  return tags.find(differ) || tags.find(t => N.styled(t, "full") !== N.styled(t, "shortest")) || tags[0] || "S100FC:S100_FC_DefinitionSources";
+  return [...new Set(tags)];
 }
 function renderRootLine(){
   if (!A.doc) return;
@@ -657,12 +655,49 @@ function renderRootLine(){
   $("rootTag").textContent = shown; $("rootLine").title = "Root element: " + shown + (shown !== rt ? " (in the file: " + rt + ")" : "");
 }
 function renderNames(){
-  const t = exampleTag(), N = XO.names;
   renderRootLine();
-  const ex = $("nsExample"); ex.textContent = N.styled(t, N.style); ex.title = "Example from this file: " + N.styled(t, N.style);
-  for (const [id, st] of [["nsFull", "full"], ["nsShorter", "shorter"], ["nsShortest", "shortest"]]) { const el = $(id); el.textContent = N.styled(t, st); el.title = N.styled(t, st); }
+  renderHide();
   renderRename();
 }
+/* the hidden parts, each a chip with a × to show it again */
+function renderHide(){
+  const N = XO.names, tags = fileTags();
+  $("hideParts").innerHTML = N.hide.map((p, i) => {
+    const n = tags.filter(t => t.toLowerCase().includes(p.toLowerCase())).length;
+    const t = A.doc ? `Hidden in ${n} tag${n === 1 ? "" : "s"} of this file` : "Hidden";
+    return `<span class="hpart" title="${esc(t)}"><s>${esc(p)}</s><button type="button" data-unhide="${i}" aria-label="Show ${esc(p)} again" title="Show it again">×</button></span>`;
+  }).join("") + (N.hide.length > 1 ? `<button class="link" type="button" data-unhide="all">Show all again</button>` : "");
+  renderHidePreview();
+}
+/* a before → after line, using what is typed in the box too, so the effect shows before pressing Hide */
+function renderHidePreview(){
+  const N = XO.names, typed = N.parse($("hideIn").value), parts = [...N.hide, ...typed], tags = fileTags();
+  const hit = t => parts.some(p => t.toLowerCase().includes(p.toLowerCase()));
+  const t = typed.length ? tags.find(t => typed.some(p => t.toLowerCase().includes(p.toLowerCase()))) : tags.find(hit);
+  const el = $("hidePreview");
+  if (!t) { el.innerHTML = typed.length && A.doc ? `No name in this file has “${esc(typed.join(" "))}”.` : ""; el.title = ""; return; }
+  const after = N.strip(t, parts);
+  el.innerHTML = `${esc(t)} → <b>${esc(after)}</b>`; el.title = "Example from this file: " + t + " → " + after;
+}
+function addHidden(){
+  const N = XO.names, inp = $("hideIn"), add = N.parse(inp.value).filter(p => !N.hide.some(h => h.toLowerCase() === p.toLowerCase()));
+  inp.value = "";
+  if (!add.length) { renderHidePreview(); return; }
+  N.hide.push(...add);
+  applyNames();
+  inp.focus();
+}
+$("hideAdd").addEventListener("click", addHidden);
+$("hideIn").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addHidden(); } });
+$("hideIn").addEventListener("input", renderHidePreview);
+$("hideParts").addEventListener("click", e => {
+  const b = e.target.closest("button[data-unhide]"); if (!b) return;
+  e.stopPropagation();
+  const N = XO.names;
+  if (b.dataset.unhide === "all") N.hide = []; else N.hide.splice(+b.dataset.unhide, 1);
+  applyNames();
+  $("hideIn").focus();
+});
 function selectedTag(){
   const b = A.sel && A.O?.bodies.get(A.sel);
   return b && b.type !== "group" && A.src?.mode === "tree" ? A.src.tagOf(b.id) : "";
@@ -670,9 +705,9 @@ function selectedTag(){
 function renameForm(tag, inputId){
   const N = XO.names, n = A.src.palette.get("t:" + tag)?.count || 1, cur = N.custom.get(tag) || "", shown = N.show(tag);
   const isRoot = A.doc && tag === A.doc.documentElement.nodeName;
-  const help = `Shown for every element with this tag${n > 1 ? " (" + n.toLocaleString() + " in this file)" : ""}. Leave empty to use the style.${isRoot ? " The centre circle keeps the file's own name." : ""}`;
+  const help = `Shown for every element with this tag${n > 1 ? " (" + n.toLocaleString() + " in this file)" : ""}. Leave empty to go back to the name with hidden parts taken out.${isRoot ? " The centre circle keeps the file's own name." : ""}`;
   return `<div class="lbl" title="${esc(shown !== tag ? "In the file: <" + tag + ">" : "")}">Rename <b>&lt;${esc(shown)}&gt;</b>${n > 1 ? ` · ${n.toLocaleString()}×` : ""}</div>
-    <div class="row"><input id="${inputId}" data-tag="${esc(tag)}" type="text" value="${esc(cur)}" placeholder="${esc(N.styled(tag, N.style))}" title="${esc(help)}" aria-label="New display name for ${esc(shown)}" autocomplete="off"><button class="btn primary" type="button" data-nact="save">Save</button>${cur ? `<button class="btn" type="button" data-nact="reset" title="Back to the style's name">Reset</button>` : ""}</div>
+    <div class="row"><input id="${inputId}" data-tag="${esc(tag)}" type="text" value="${esc(cur)}" placeholder="${esc(N.strip(tag))}" title="${esc(help)}" aria-label="New display name for ${esc(shown)}" autocomplete="off"><button class="btn primary" type="button" data-nact="save">Save</button>${cur ? `<button class="btn" type="button" data-nact="reset" title="Back to the name with hidden parts taken out">Reset</button>` : ""}</div>
     <p class="ninfo">${shown !== tag ? `In the file: &lt;${esc(tag)}&gt;. ` : ""}${esc(help)}</p>`;
 }
 function renderRename(){
@@ -690,7 +725,6 @@ function applyNames(){
   if (!$("results").hidden) showResults();
   kick();
 }
-$("nameStyles").addEventListener("change", e => { if (e.target.name === "nstyle") { XO.names.style = e.target.value; applyNames(); } });
 /* the rename form lives in the Display names box and in the side panel; both work the same */
 function onRename(e){
   const t = e.target.closest("button[data-nact]"); if (!t) return;

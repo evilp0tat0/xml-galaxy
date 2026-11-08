@@ -35,7 +35,7 @@ On Windows, double-click **`start.bat`**. It starts a small local server with th
 | Hover | light up the chain back to the sun, with the kind of each link |
 | Type in the search box | find an element or type; choosing it opens every body on the way and flies there |
 | **Make it the centre** (catalogues) | start the map from another type |
-| **Display names** box | show tags in full (`S100FC:S100_FC_DefinitionSources`), shorter (`FC_DefinitionSources`) or shortest (`DefinitionSources`); or select an element and rename its tag. Only the display changes, never the file; choices are remembered in this browser |
+| **Display names** box | type a part of the name you don't want to see (for example `S100_FC_` or `S100FC:`) and press **Hide**: it is taken out of every name, so `S100FC:S100_FC_DefinitionSources` shows as `DefinitionSources`. Hidden parts show as chips; × shows a part again. Or select an element and rename its tag. Only the display changes, never the file; choices are remembered in this browser |
 | Scroll / pinch, drag empty space, double-click empty space | zoom, pan, fit |
 | Keys on the map: `f` fit, space pause, `+` `-` zoom, `Esc` deselect; `Ctrl K` or `/` search | |
 

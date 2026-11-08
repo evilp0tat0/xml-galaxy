@@ -109,24 +109,22 @@ body:has(.side:not([hidden])) .ctrls{right:calc(min(380px,100vw) + 14px)}
 .legend p{margin:8px 0 12px;color:var(--muted);font-size:11.5px;white-space:normal;line-height:1.5}
 .names{padding:2px 12px 8px;font-size:12px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
-.seg{display:flex;gap:2px;margin:0;padding:2px;border:1px solid var(--line);border-radius:7px;background:var(--deep)}
-.seg label{flex:1;position:relative;cursor:pointer}
-.seg input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer}
-.seg span{display:block;text-align:center;padding:3px 0;border-radius:5px;font-size:11.5px;color:var(--muted)}
-.seg label:hover span{color:var(--text)}
-.seg input:checked + span{background:var(--accent);color:#fff}
-.seg input:focus-visible + span{outline:2px solid var(--accent);outline-offset:1px}
-.nsex{display:block;margin:5px 2px 0;font-size:11px;color:var(--accent-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ninfo-bar{display:flex;justify-content:flex-end;margin:-4px 0 4px}
 p.ninfo{margin:0 0 7px;color:var(--faint);font-size:11px;line-height:1.5}
 .ren p.ninfo{margin:2px 0 0}
-.nsl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:2px 10px;margin:6px 2px 0;font-size:11px}
-.nsl dt{color:var(--muted)}
-.nsl dd{margin:0;font-family:var(--font-mono);color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 body.ninfo-off .ninfo{display:none}
-body:not(.ninfo-off) .nsex{display:none}
 .ren{display:flex;flex-direction:column;gap:4px}
+.hparts{display:flex;flex-wrap:wrap;gap:4px}
+.hparts:empty{display:none}
+.hpart{display:inline-flex;align-items:center;gap:2px;max-width:100%;padding:1px 2px 1px 8px;border-radius:6px;border:1px solid color-mix(in srgb,var(--accent) 35%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent);font:11.5px var(--font-mono);color:var(--accent-text)}
+.hpart s{text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--accent-text) 60%,transparent);overflow:hidden;text-overflow:ellipsis;white-space:pre}
+.hpart button{flex:none;width:18px;height:18px;display:grid;place-items:center;border:0;border-radius:4px;background:none;color:inherit;cursor:pointer;font-size:13px;line-height:1}
+.hpart button:hover{background:color-mix(in srgb,var(--accent) 25%,transparent);color:#fff}
+.nprev{font:11px var(--font-mono);color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nprev b{font-weight:500;color:var(--accent-text)}
+.nprev:empty{display:none}
 .names .ren{margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
+.names .hidebox{margin-top:0;padding-top:0;border-top:0}
 .ren .lbl{font-size:11px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ren .lbl b{font:500 11px var(--font-mono);color:var(--text)}
 .ren .row{display:flex;gap:4px}
@@ -250,19 +248,12 @@ body:not(.ninfo-off) .nsex{display:none}
 <details class="glass names" id="namesBox">
   <summary>Display names</summary>
   <div class="ninfo-bar"><button class="link" type="button" data-nact="info" aria-pressed="true">Hide info</button></div>
-  <p class="ninfo">Changes only how names are shown. The file is not changed. Pick a style for every element, or select an element and type its own name.</p>
-  <fieldset id="nameStyles" class="seg" title="Changes only how names are shown. The file is not changed.">
-    <legend class="sr">Style for every element</legend>
-    <label><input type="radio" name="nstyle" value="full" checked><span>Full</span></label>
-    <label><input type="radio" name="nstyle" value="shorter"><span>Shorter</span></label>
-    <label><input type="radio" name="nstyle" value="shortest"><span>Shortest</span></label>
-  </fieldset>
-  <code class="nsex" id="nsExample"></code>
-  <dl class="ninfo nsl">
-    <dt>Full</dt><dd id="nsFull"></dd>
-    <dt>Shorter</dt><dd id="nsShorter"></dd>
-    <dt>Shortest</dt><dd id="nsShortest"></dd>
-  </dl>
+  <p class="ninfo">Type the part of a name you don't want to see, then press Hide. It is taken out of every name on the map. Only the display changes, never the file.</p>
+  <div class="ren hidebox">
+    <div class="row"><input id="hideIn" type="text" placeholder="e.g. S100_FC_" aria-label="Part of the name to hide" title="Type the part of a name you don't want to see. Several at once: separate them with spaces or commas." autocomplete="off" spellcheck="false"><button class="btn primary" type="button" id="hideAdd">Hide</button></div>
+    <div class="hparts" id="hideParts"></div>
+    <div class="nprev" id="hidePreview"></div>
+  </div>
   <div class="ren" id="renameArea"></div>
 </details>
 <details class="glass legend" id="legend" open>
