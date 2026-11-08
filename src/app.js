@@ -214,7 +214,7 @@ function circleSpans(x, y, r){
 function strokeArc(x, y, r, from, to, period){
   const spans = circleSpans(x, y, r);
   if (spans && !spans.length) return false;
-  /* all of it on screen, or not big enough to need cutting: drawn whole, as it always was */
+  /* all of it on screen, or not big enough to need cutting: drawn whole */
   if (!spans || r <= (period ? W + H : HUGE)) { ctx.beginPath(); ctx.arc(x, y, r, from, to); ctx.stroke(); return true; }
   /* the drawn range, moved to start within 0..2π; what is on screen repeats every full turn */
   const turn = TAU * Math.floor(from / TAU), f = from - turn, t = to - turn, g = 256 / r, pieces = [];
@@ -295,7 +295,7 @@ function strokeCurve(ax, ay, cx, cy, bx, by, period){
 function draw(){
   const c = A.cam;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  /* the backdrop is the canvas's CSS background (index.html), painted once instead of every frame */
+  /* the backdrop is the canvas's CSS background (index.html), which the browser paints once; each frame only clears the canvas */
   ctx.clearRect(0, 0, W, H);
   const O = A.O; if (!O) return;
   const lit = litSet();
@@ -447,7 +447,7 @@ function drawLabels(lit){
     if (!on && b.depth > 1 && b.size * k < 3.2) continue;
     const x = c.x + k * b.x, y = c.y + k * b.y, r = reach(b);
     /* Every place tried for a label (beside, below or above its body) must start on screen. A body too far off screen for
-       any of them is passed over: the bounds below are those places' own, so what is drawn does not change.
+       any of them is passed over; the bounds below are those places' own, so no label that could be placed is missed.
        The sun's and the lit body's labels are always placed. */
     if (b.depth > 0 && !(lit && b.id === lit.d.id)) {
       if (x < -56 - r || y < -24 - r || y > H + 24 + r + (on ? 21 : 15)) continue;
