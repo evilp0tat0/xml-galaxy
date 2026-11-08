@@ -249,7 +249,7 @@ function xmlSource(doc, fileName){
     groups(x){
       const r = rec(x); if (!r) return [];
       const by = new Map();
-      for (const k of r.kids) { if (!by.has(k.tag)) by.set(k.tag, []); by.get(k.tag).push(k); }
+      for (const k of r.kids) { let l = by.get(k.tag); if (!l) by.set(k.tag, l = []); l.push(k); }
       return [...by].map(([tag, ks]) => ({ key:"t:" + tag, title:"<" + dn(tag) + ">", color:"t:" + tag,
         entries:ks.map(k => ({ id:id(k) })) }));
     },
