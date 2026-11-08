@@ -224,7 +224,8 @@ body.ninfo-off .ninfo{display:none}
   <button type="button" id="zoomOut" title="Zoom out (-)" aria-label="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M8 11h6"/></svg></button>
   <button type="button" id="fit" title="Fit to screen (f)" aria-label="Fit to screen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
   <hr>
-  <button type="button" id="foldAll" title="Fold all orbits" aria-label="Fold all orbits"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
+  <button type="button" id="showAll" title="Show all orbits (a)" aria-label="Show all orbits"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="5.5" opacity=".75"/><circle cx="12" cy="12" r="9.5" opacity=".45"/><circle cx="17.5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="5.3" cy="7.5" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+  <button type="button" id="foldAll" title="Fold all orbits (c)" aria-label="Fold all orbits"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
   <hr>
   <button type="button" id="play" class="on" title="Pause orbits (space)" aria-label="Pause orbits" aria-pressed="true"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg></button>
 </div>
@@ -253,7 +254,7 @@ body.ninfo-off .ninfo{display:none}
 
 <section class="glass welcome" id="welcome" hidden>
   <h2>See an XML file as a solar system</h2>
-  <p>Open or drop any XML file, or paste XML anywhere on this page. The root element is the sun. Each element's children orbit it, each on an orbit of its own. Click a body to centre it; click it again to open its own orbits. What orbits what never changes; you can drag bodies about and they drift back.</p>
+  <p>Open or drop any XML file, or paste XML anywhere on this page. The root element is the sun. Each element's children orbit it, each on an orbit of its own. Click a body to centre it; click it again to open its own orbits, or show every orbit at once with the button at the bottom right. What orbits what never changes; you can drag bodies about and they drift back.</p>
   <p class="err" id="err" hidden></p>
   <div class="acts"><button class="btn primary" id="openBtn2" type="button">Open XML</button><button class="btn" id="sampleBtn" type="button">Load the S-201 sample</button></div>
 </section>
