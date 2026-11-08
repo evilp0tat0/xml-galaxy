@@ -166,7 +166,7 @@ function draw(){
     ctx.globalAlpha = lit ? (on ? 0.95 : 0.04) : (l.kind === "spoke" ? 0.32 : 0.45);
     ctx.strokeStyle = colour(l.color); ctx.lineWidth = on ? 2.4 : l.kind === "spoke" ? 0.9 : 1.1;
     ctx.setLineDash(l.kind === "spoke" ? [] : [5, 5]);
-    const dx = bx - ax, dy = by - ay, bend = l.kind === "spoke" ? 0.1 : l.kind === "extra" ? 0.18 : 0.26;
+    const dx = bx - ax, dy = by - ay, bend = l.kind === "spoke" ? 0.1 : 0.26;
     ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo((ax + bx) / 2 - dy * bend, (ay + by) / 2 + dx * bend, bx, by);
     ctx.stroke();
   }
@@ -465,11 +465,9 @@ $("side").addEventListener("click", e => {
 
 /* ---------------- find ---------------- */
 function reveal(id){
-  const path = A.src.pathTo(id);
-  if (!path) { note("That element is not in this file."); return; }
-  A.O.reveal(path); A.O.build();
+  A.O.reveal(A.src.pathTo(id)); A.O.build();
   const b = A.O.bodies.get(id);
-  if (!b) { note("It sits inside a body that is already on the map; look for the dashed line."); return; }
+  if (!b) { note("That element is not in this file."); return; }
   select(b); followBody(b, true); A.pulse = { id:b.id, t0:performance.now() };
   if (b.parent) A.followK = Math.min(1e5, Math.max(A.followK || A.cam.k, 8 / Math.max(1e-4, b.size)));
 }
