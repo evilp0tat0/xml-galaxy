@@ -110,15 +110,19 @@ function cameraStep(){
   }
   return false;
 }
-/* how far the camera can zoom: in to the deepest moons, and out far enough that a big file shown in full still fits the screen */
-const MIN_ZOOM = 1e-4, MAX_ZOOM = 1e5;
+/* how far in the camera can zoom: to the deepest moons */
+const MAX_ZOOM = 1e5;
+/* the zoom at which the whole map fits the free part of the screen */
+function fitZoom(fa){
+  const R = A.O.extent() + 120, k = Math.min(1.6, Math.min(fa.x1 - fa.x0, fa.y1 - fa.y0) / (2 * R));
+  return isFinite(k) && k > 0 ? k : 0.05;
+}
+/* how far out it can zoom: to 0.01%, or further when a big file shown in full needs it to fit */
+const minZoom = () => Math.min(1e-4, fitZoom(freeArea()));
 function fit(animate = true){
   if (!A.O) return;
   A.follow = null; A.followK = null;
-  const fa = freeArea(), R = A.O.extent() + 120;
-  let k = Math.min(1.6, Math.min(fa.x1 - fa.x0, fa.y1 - fa.y0) / (2 * R));
-  if (!isFinite(k) || k <= 0) k = 0.05;
-  k = Math.max(MIN_ZOOM, k);
+  const fa = freeArea(), k = fitZoom(fa);
   const t = { x:(fa.x0 + fa.x1) / 2, y:(fa.y0 + fa.y1) / 2, k };
   if (animate && !REDUCED) A.camTo = t; else { Object.assign(A.cam, t); A.camTo = null; }
   kick();
@@ -577,22 +581,23 @@ canvas.addEventListener("contextmenu", e => e.preventDefault());
 canvas.addEventListener("dblclick", e => { if (!hit(e.offsetX, e.offsetY)) fit(true); });
 canvas.addEventListener("wheel", e => { e.preventDefault(); zoomAt(e.offsetX, e.offsetY, Math.exp(-e.deltaY * (e.deltaMode ? 0.05 : 0.0015))); }, { passive:false });
 function zoomAt(sx, sy, f){
-  const c = A.cam, k = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, c.k * f));
+  const c = A.cam, k = Math.max(minZoom(), Math.min(MAX_ZOOM, c.k * f));
   A.camTo = null; A.followK = null;
   if (A.follow) { c.k = k; kick(); return; }
   c.x = sx - (sx - c.x) * (k / c.k); c.y = sy - (sy - c.y) * (k / c.k); c.k = k; kick();
 }
 canvas.addEventListener("keydown", e => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;   /* plain keys only: Ctrl C, ⌘A and the like stay the browser's */
+  const key = e.key.toLowerCase();                   /* letters work with Caps Lock or Shift too */
   if (e.key === "Escape") select(null);
-  else if (e.key === "f") fit(true);
+  else if (key === "f") fit(true);
   else if (e.key === " ") { e.preventDefault(); setPlay(!A.playing); }
   else if (e.key === "+" || e.key === "=") zoomAt(W / 2, H / 2, 1.25);
   else if (e.key === "-") zoomAt(W / 2, H / 2, 0.8);
   else if (e.key === "Enter" && A.sel) { const b = A.O.bodies.get(A.sel); if (b) clickBody(b); }
   /* a held key keeps zooming, but builds the whole map only once */
-  else if (e.key === "a" && !e.repeat) showAll();
-  else if (e.key === "c" && !e.repeat) foldAll();
+  else if (key === "a" && !e.repeat) showAll();
+  else if (key === "c" && !e.repeat) foldAll();
 });
 
 /* ---------------- hover, tooltip, selection ---------------- */
@@ -976,6 +981,8 @@ $("play").addEventListener("click", () => setPlay(!A.playing));
 $("fit").addEventListener("click", () => fit(true));
 $("showAll").addEventListener("click", showAll);
 $("foldAll").addEventListener("click", foldAll);
+/* after a click on one of these buttons the keys on the map go on working */
+for (const b of $("ctrls").querySelectorAll("button")) b.addEventListener("click", () => canvas.focus({ preventScroll:true }));
 for (const id of ["openBtn", "openBtn2"]) $(id).addEventListener("click", () => $("fileIn").click());
 $("sampleBtn").addEventListener("click", () => { A.userLoaded = false; loadSample(); });
 $("examples").addEventListener("change", e => { const u = e.target.value; e.target.value = ""; if (u) { A.userLoaded = false; loadSample(u); } });
