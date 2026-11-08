@@ -37,8 +37,8 @@ On Windows, double-click **`start.bat`**. It starts a small local server with th
 | Type in the search box | find an element; choosing it opens every body on the way and flies there |
 | **Display names** box | type the parts of the name you don't want to see (for example `S100FC: S100_FC_`; separate several with spaces or commas) and press **Hide**: they are taken out of every name, so `S100FC:S100_FC_SimpleAttributes` shows as `SimpleAttributes`. Hidden parts show as chips; × shows a part again. Or select an element and rename its tag. Only the display changes, never the file; choices are remembered in this browser |
 | Scroll / pinch, drag empty space, double-click empty space | zoom, pan, fit |
-| Buttons at the bottom right | zoom in, zoom out, fit, fold every orbit back into one circle, pause or play the orbits |
-| Keys on the map | `f` fit, space pause, `+` `-` zoom, `Esc` deselect, `Enter` show or fold the selected body's child elements; `Ctrl K` (`⌘K` on a Mac) or `/` search |
+| Buttons at the bottom right | zoom in, zoom out, fit, show every orbit at once (every element in the file), fold every orbit back into one circle, pause or play the orbits |
+| Keys on the map | `f` fit, space pause, `+` `-` zoom, `Esc` deselect, `Enter` show or fold the selected body's child elements, `a` show every orbit, `c` fold every orbit; `Ctrl K` (`⌘K` on a Mac) or `/` search |
 
 Colours: body, line and orbit colour is the element's tag (see the colour key). Every tag name gets its own colour: a high-contrast set first, then more colours picked to be as different as possible from all the others. Dashed cyan lines are id references (`ref`, `href`, `xlink:href="#…"`, `idref`, `…Ref`) to elements already on the map.
 
@@ -58,4 +58,4 @@ serve.ps1           local static server in PowerShell (used by start.bat)
 ## Notes
 
 - The bundled S-201 Feature Catalogue is `ProgramData/FC/S-201_FC.xml` from [OpenS100](https://github.com/S-100ExpertTeam/OpenS100), the public 2016 draft (v0.0.5), converted to UTF-8. It is under the [Mozilla Public License 2.0](https://mozilla.org/MPL/2.0/) and included only as an example XML file.
-- Very large files: everything is parsed, but only the centre and the children of opened bodies are drawn. Opening a body shows all of its children, which gets slow with many thousands of them. A search opens only the bodies on the way; other big groups of children beside that path start folded.
+- Very large files: everything is parsed, but only the centre and the children of opened bodies are drawn. Opening a body shows all of its children, which gets slow with many thousands of them, and showing every orbit at once draws the whole file. A search opens only the bodies on the way; other big groups of children beside that path start folded.

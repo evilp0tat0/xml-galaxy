@@ -110,13 +110,19 @@ function cameraStep(){
   }
   return false;
 }
+/* how far in the camera can zoom: to the deepest moons */
+const MAX_ZOOM = 1e5;
+/* the zoom at which the whole map fits the free part of the screen */
+function fitZoom(fa){
+  const R = A.O.extent() + 120, k = Math.min(1.6, Math.min(fa.x1 - fa.x0, fa.y1 - fa.y0) / (2 * R));
+  return isFinite(k) && k > 0 ? k : 0.05;
+}
+/* how far out it can zoom: to 0.01%, or further when a big file shown in full needs it to fit */
+const minZoom = () => Math.min(1e-4, fitZoom(freeArea()));
 function fit(animate = true){
   if (!A.O) return;
   A.follow = null; A.followK = null;
-  const fa = freeArea(), R = A.O.extent() + 120;
-  let k = Math.min(1.6, Math.min(fa.x1 - fa.x0, fa.y1 - fa.y0) / (2 * R));
-  if (!isFinite(k) || k <= 0) k = 0.05;
-  k = Math.max(0.002, k);
+  const fa = freeArea(), k = fitZoom(fa);
   const t = { x:(fa.x0 + fa.x1) / 2, y:(fa.y0 + fa.y1) / 2, k };
   if (animate && !REDUCED) A.camTo = t; else { Object.assign(A.cam, t); A.camTo = null; }
   kick();
@@ -130,7 +136,7 @@ function followBody(b, zoomToSystem){
     const fa = freeArea();
     /* a body with no orbits of its own: show it with its neighbourhood, not filling the screen */
     const R = b.sysR ? (b.sysR + b.size) * 1.15 + b.size * 0.5 : b.size * 12;
-    A.followK = Math.max(0.05, Math.min(1e5, Math.min(fa.x1 - fa.x0, fa.y1 - fa.y0) / (2 * R)));
+    A.followK = Math.max(0.05, Math.min(MAX_ZOOM, Math.min(fa.x1 - fa.x0, fa.y1 - fa.y0) / (2 * R)));
   }
   kick();
 }
@@ -388,9 +394,11 @@ function draw(){
      makes the browser restyle and lay it out again */
   if (counted !== O.order) { counted = O.order; countText = A.src ? `${O.order.filter(b => b.type !== "group").length} of ${A.src.total.toLocaleString()} elements shown · ${O.order.reduce((s, b) => s + b.rings.length, 0)} orbits` : ""; }
   setText("status", countText);
-  setText("zoomPct", A.src ? `zoom ${Math.round(c.k * 100)}%` : "");
+  setText("zoomPct", A.src ? `zoom ${zoomPct(c.k)}%` : "");
 }
 let counted = null, countText = "";
+/* the zoom as a percentage: whole numbers, except under 1% (a big file shown in full), where one figure still says something */
+const zoomPct = k => { const p = k * 100; return p >= 1 ? Math.round(p) : +p.toPrecision(1); };
 const shownText = {};
 function setText(id, t){ if (shownText[id] !== t) { shownText[id] = t; $(id).textContent = t; } }
 const S = (b) => [A.cam.x + A.cam.k * b.x, A.cam.y + A.cam.k * b.y];
@@ -573,18 +581,23 @@ canvas.addEventListener("contextmenu", e => e.preventDefault());
 canvas.addEventListener("dblclick", e => { if (!hit(e.offsetX, e.offsetY)) fit(true); });
 canvas.addEventListener("wheel", e => { e.preventDefault(); zoomAt(e.offsetX, e.offsetY, Math.exp(-e.deltaY * (e.deltaMode ? 0.05 : 0.0015))); }, { passive:false });
 function zoomAt(sx, sy, f){
-  const c = A.cam, k = Math.max(0.002, Math.min(1e5, c.k * f));
+  const c = A.cam, k = Math.max(minZoom(), Math.min(MAX_ZOOM, c.k * f));
   A.camTo = null; A.followK = null;
   if (A.follow) { c.k = k; kick(); return; }
   c.x = sx - (sx - c.x) * (k / c.k); c.y = sy - (sy - c.y) * (k / c.k); c.k = k; kick();
 }
 canvas.addEventListener("keydown", e => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;   /* plain keys only: Ctrl C, ⌘A and the like stay the browser's */
+  const key = e.key.toLowerCase();                   /* letters work with Caps Lock or Shift too */
   if (e.key === "Escape") select(null);
-  else if (e.key === "f") fit(true);
+  else if (key === "f") fit(true);
   else if (e.key === " ") { e.preventDefault(); setPlay(!A.playing); }
   else if (e.key === "+" || e.key === "=") zoomAt(W / 2, H / 2, 1.25);
   else if (e.key === "-") zoomAt(W / 2, H / 2, 0.8);
   else if (e.key === "Enter" && A.sel) { const b = A.O.bodies.get(A.sel); if (b) clickBody(b); }
+  /* a held key keeps zooming, but builds the whole map only once */
+  else if (key === "a" && !e.repeat) showAll();
+  else if (key === "c" && !e.repeat) foldAll();
 });
 
 /* ---------------- hover, tooltip, selection ---------------- */
@@ -668,6 +681,19 @@ function toggleOpen(b){
   const nb = O.bodies.get(b.id);
   select(nb); followBody(nb, opened);
 }
+/* show every element in the file, then fit the whole map on screen; the selected body stays selected */
+function showAll(){
+  const O = A.O; if (!O) return;
+  O.openAll(); O.build(); O.step(0, false);
+  const s = O.bodies.get(A.sel); if (s) renderSide(s);
+  fit(true);
+}
+/* fold every orbit back into the one circle of the root element */
+function foldAll(){
+  const O = A.O; if (!O) return;
+  O.open = new Set(); O.spread.clear(); select(null); O.build();
+  setTimeout(() => fit(true), 250); kick();
+}
 
 /* ---------------- side panel ---------------- */
 function renderSide(b){
@@ -714,7 +740,7 @@ function reveal(id){
   const b = A.O.bodies.get(id);
   if (!b) { note("That element is not in this file."); kick(); return; }
   select(b); followBody(b, true); A.pulse = { id:b.id, t0:performance.now() };
-  if (b.parent) A.followK = Math.min(1e5, Math.max(A.followK || A.cam.k, 8 / Math.max(1e-4, b.size)));
+  if (b.parent) A.followK = Math.min(MAX_ZOOM, Math.max(A.followK || A.cam.k, 8 / Math.max(1e-4, b.size)));
 }
 let resIdx = -1, qTimer = 0;
 /* Typing searches after a short pause (longer in a big file), so fast typing does not search, and lay out the results,
@@ -814,7 +840,7 @@ function renderLegend(){
   for (const [, v] of tags.slice(0, 16)) out.push(`<div class="k"><b style="background:${v.color};color:${v.color}"></b>${esc(v.title)}<em>${v.count}</em></div>`);
   if (tags.length > 16) out.push(`<div class="k" style="color:var(--faint)">… and ${tags.length - 16} more tags</div>`);
   out.push(`<div class="k"><i style="background:repeating-linear-gradient(90deg,${colour("ref")} 0 5px,transparent 5px 9px)"></i>id reference (ref, href, idref…)</div>`);
-  out.push(`<p>Click a circle to centre it; click it again to show all its child elements; once more to fold them. A dashed circle with a number is a folded group: click it to spread it out. Drag a body to pull it about; it drifts back to its orbit. Hover to light up the chain back to the centre.</p>`);
+  out.push(`<p>Click a circle to centre it; click it again to show all its child elements; once more to fold them. A dashed circle with a number is a folded group: click it to spread it out. The buttons at the bottom right show every orbit at once, or fold them all back into one circle. Drag a body to pull it about; it drifts back to its orbit. Hover to light up the chain back to the centre.</p>`);
   $("legendBody").innerHTML = out.join("");
 }
 
@@ -953,7 +979,10 @@ document.addEventListener("keydown", e => {
 });
 $("play").addEventListener("click", () => setPlay(!A.playing));
 $("fit").addEventListener("click", () => fit(true));
-$("foldAll").addEventListener("click", () => { if (!A.O) return; A.O.open = new Set(); A.O.spread.clear(); select(null); A.O.build(); setTimeout(() => fit(true), 250); kick(); });
+$("showAll").addEventListener("click", showAll);
+$("foldAll").addEventListener("click", foldAll);
+/* after a click on one of these buttons the keys on the map go on working */
+for (const b of $("ctrls").querySelectorAll("button")) b.addEventListener("click", () => canvas.focus({ preventScroll:true }));
 for (const id of ["openBtn", "openBtn2"]) $(id).addEventListener("click", () => $("fileIn").click());
 $("sampleBtn").addEventListener("click", () => { A.userLoaded = false; loadSample(); });
 $("examples").addEventListener("change", e => { const u = e.target.value; e.target.value = ""; if (u) { A.userLoaded = false; loadSample(u); } });
