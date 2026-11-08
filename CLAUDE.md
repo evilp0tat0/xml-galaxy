@@ -29,19 +29,20 @@ Owner decisions; keep them:
 
 ## Every change, before it is done
 
-1. **Branch and pull request.** Work on your branch and open a pull request into `main`.
-   - **When to merge.** Merge it yourself with a merge commit once every check in rule 5
-     passes on the branch as it will be merged. Fetch `origin` first; if `origin/main` has
-     moved, merge it into your branch and check again.
+1. **Branch, pull request and merge, all without being asked.** Work on your branch, open
+   a pull request into `main` as soon as your first commit is pushed, and merge it
+   yourself. Never leave a pull request open for the owner, and never ask whether to
+   merge: the owner has decided that pull requests and merges are automatic.
+   - **When to merge.** Merge with a merge commit once every check in rule 5 passes on the
+     branch as it will be merged. Fetch `origin` first; if `origin/main` has moved, merge it
+     into your branch and check again. If a check cannot run in your session (cloud
+     sessions have no PowerShell, so changes to `start.bat` or `serve.ps1` can't be tried
+     there), merge anyway and say exactly what was not tried, in the pull request and in
+     your last message.
+   - **Real choices** (the look, licences, removing a feature) are asked about in chat
+     before the work is done, never by leaving a pull request open.
    - **After merging.** Merging publishes the live site, so check that the "Deploy to GitHub
-     Pages" run for the merge succeeded.
-   - **Leave it open instead**, saying why, if the owner asked to review it, if it makes one
-     of the real choices above, or if a check could not run. For example, cloud sessions
-     have no PowerShell, so the owner must try changes to `start.bat` or `serve.ps1` on
-     Windows.
-   - **Branches.** GitHub deletes a merged branch only while the repository's
-     "Automatically delete head branches" setting is on. Don't change repository settings
-     or delete branches yourself. If merged branches pile up, tell the owner.
+     Pages" run for the merge succeeded, then delete your branch (rule 7).
 2. **README and page text in step.** In the same pull request, make `README.md` match the
    app: every control, key, panel and script described, and nothing out of date. The same
    goes for the page's own text. In `index.html`: the welcome panel, the Display names text
@@ -64,8 +65,9 @@ Owner decisions; keep them:
    - **Open it with Playwright.** Use headless Chromium with Playwright for Node. It is
      preinstalled in Claude cloud sessions; load it with `require("playwright")`. If it is
      missing, install it outside this folder, never into it (no `package.json` or
-     `node_modules` here). If you can't install it, say which checks did not run and leave
-     the pull request open. Keep check scripts and screenshots outside the repo.
+     `node_modules` here). If you can't install it, say which checks did not run, in the
+     pull request and in your last message (rule 1). Keep check scripts and screenshots
+     outside the repo.
    - **Basic check.** Both samples load, orbits open, search works, and the console shows
      no errors.
    - **Cleanups and refactors change nothing.** Run the same steps before and after in a
@@ -77,13 +79,27 @@ Owner decisions; keep them:
 6. **Scripts in step.** `start.bat` with `serve.ps1` (Windows) and `serve.sh` (macOS,
    Linux) serve this folder on localhost only, and the README describes them.
    `.gitattributes` keeps line endings right: CRLF for `.bat` and `.ps1`, LF for `.sh`.
-7. **GitHub stays tidy.**
-   - **Dependabot.** When you start a task, look for an open Dependabot pull request. It
-     updates the workflows' actions, at most once a month. The deploy runs only on `main`,
-     so it can't be tried on the pull request. Read the release notes in its description
-     for breaking changes, merge it, then check that the deploy succeeded and the live site
-     loads. If the deploy failed, revert the merge in a new pull request and tell the owner.
-   - **Your own work only.** Close your pull requests that are superseded or abandoned.
-     Apart from Dependabot's, never merge or close other pull requests or issues, and never
-     delete branches: other sessions may still be working on them, and anyone can open
-     issues on this public repo. If some look stale, list them for the owner.
+7. **GitHub stays clean, all the time.** Look at the repository's open pull requests and
+   its branches when you start a task and again before you finish, and leave nothing
+   behind that is finished with.
+   - **Dependabot.** It updates the workflows' actions, at most once a month. The deploy
+     runs only on `main`, so it can't be tried on the pull request. Read the release notes
+     in its description for breaking changes, merge it, then check that the deploy
+     succeeded and the live site loads. If the deploy failed, revert the merge in a new
+     pull request and tell the owner.
+   - **Your own work.** Delete your branch once its pull request is merged (GitHub does it
+     by itself only while the repository's "Automatically delete head branches" setting is
+     on). Close your pull requests that are superseded or abandoned, and delete their
+     branches.
+   - **Everyone else's.** Delete every branch whose pull request is merged or closed, and
+     every branch with no pull request whose commits are all in `main`. Never merge or
+     close another session's open pull request, and never delete a branch that has one or
+     that holds commits not in `main`: another session may still be working on it. List
+     for the owner the open pull requests and the unmerged branches that have had no
+     commits for a week, and any issues that look stale (anyone can open issues on this
+     public repo).
+   - **If a branch can't be deleted** from your session (a permission is refused), say so
+     and name the branches, so the owner can delete them or turn the setting above on.
+   - **Nothing but the app in the repository.** Check scripts, screenshots, logs,
+     `package.json`, `node_modules` and scratch files are never committed; rule 5 keeps
+     them outside this folder.
