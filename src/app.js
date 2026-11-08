@@ -47,7 +47,7 @@ function kick(){ if (!raf) raf = requestAnimationFrame(frame); }
 function frame(now){
   raf = 0;
   const dt = last ? Math.min(0.05, (now - last) / 1000) : 0; last = now;
-  const spin = A.playing && !A.hover && !A.ptr?.dragging;
+  const spin = !!A.O && A.playing && !A.hover && !A.ptr?.dragging;
   const moving = A.O ? A.O.step(dt, spin) : false;
   const camMoving = cameraStep();
   draw();
