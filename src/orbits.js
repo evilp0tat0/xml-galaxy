@@ -1,9 +1,8 @@
 /* The orbit engine. Who orbits whom is fixed by the source and never changes;
    where a body is right now is physics: it springs toward its spot on its parent's orbit,
    can be dragged away, and drifts back when let go. Its moons follow it wherever it goes.
-   In the catalogue view each level down is drawn at half the scale of the one above, so deep files stay
-   a bounded size: zoom in (or select a body) to read its moons. In the XML tree view bodies keep their own
-   size at every depth (sources set flatSize), and orbits still clear each body's whole system. */
+   Bodies keep their own size at every depth (the source sets flatSize), and orbits still clear each body's
+   whole system. Without flatSize each level down is drawn at half the scale of the one above. */
 (function(){
 "use strict";
 const XO = window.XO;
@@ -23,8 +22,8 @@ class Orbits {
   }
   collapseAt(depth){ return depth === 0 ? 16 : 10; }
 
-  /* Breadth-first from the centre, so an item linked from several bodies sits with the one nearest the centre;
-     the others get a dashed cross link to it instead of a copy. Items hidden in a folded group count as placed. */
+  /* Breadth-first from the centre. Each element has one parent, so each gets one body;
+     dashed lines come only from id references. Items hidden in a folded group count as placed. */
   build(){
     const src = this.src, prev = this.bodies, next = new Map(), claimed = new Map(), order = [], links = [];
     const mk = (id, base, extra) => {
@@ -40,21 +39,9 @@ class Orbits {
       if (n.type === "group" || !this.open.has(n.id) || !src.canOpen(n.id)) continue;
       n.isOpen = true;
       const u = unit(n.depth + 1);
-      /* first pass: what is new here, per group */
-      const plan = [], planned = new Set(), later = [];
-      for (const g of src.groups(n.id)) {
-        const fresh = [], seen = new Set();
-        for (const e of g.entries) {
-          if (seen.has(e.id)) continue;
-          seen.add(e.id);
-          /* already placed in another of this body's groups: that one is the body, this is an extra line to it */
-          if (planned.has(e.id)) { later.push({ e, g }); continue; }
-          const ex = next.get(e.id) || claimed.get(e.id);
-          if (ex) { if (ex !== n) links.push({ id:`x|${n.id}|${e.id}|${g.key}`, a:n, b:ex, color:g.color, short:e.short, label:e.label, inh:e.inherited, kind:ex.parent === n ? "extra" : "cross" }); continue; }
-          fresh.push(e); planned.add(e.id);
-        }
-        if (fresh.length) plan.push({ g, fresh, gid:n.id + ">" + g.key, fold:false });
-      }
+      /* first pass: one plan per group of children */
+      const plan = [];
+      for (const g of src.groups(n.id)) if (g.entries.length) plan.push({ g, fresh:g.entries, gid:n.id + ">" + g.key, fold:false });
       /* fold big groups, and if there are still too many children, fold the biggest of the rest */
       for (const p of plan) p.fold = p.fresh.length > this.collapseAt(n.depth) && !this.spread.has(p.gid);
       let shown = plan.reduce((s, p) => s + (p.fold ? 1 : p.fresh.length), 0);
@@ -67,24 +54,20 @@ class Orbits {
         const members = [];
         if (fold) {
           const gb = mk(gid, { type:"group", label:g.title, color:g.color, size:src.flatSize ? 10 : (n.depth ? 11 : 14) * u, count:fresh.length, ids:new Set(fresh.map(f => f.id)) },
-            { depth:n.depth + 1, parent:n, via:{ color:g.color, short:"", label:g.title } });
+            { depth:n.depth + 1, parent:n });
           for (const f of fresh) claimed.set(f.id, gb);
           members.push(gb);
           links.push({ id:"s|" + gid, a:n, b:gb, color:g.color, kind:"spoke" });
         } else for (const e of fresh) {
           const nd = src.node(e.id); if (!nd) continue;
-          const b = mk(e.id, nd, { type:"body", depth:n.depth + 1, parent:n, size:src.flatSize ? nd.size : Math.max(1.2 * u, nd.size * u * (n.depth === 0 ? 1 : 0.85)), via:{ color:g.color, short:e.short, label:e.label, inh:e.inherited } });
+          const b = mk(e.id, nd, { type:"body", depth:n.depth + 1, parent:n, size:src.flatSize ? nd.size : Math.max(1.2 * u, nd.size * u * (n.depth === 0 ? 1 : 0.85)) });
           members.push(b); q.push(b);
-          links.push({ id:"s|" + e.id, a:n, b, color:g.color, short:e.short, label:e.label, inh:e.inherited, kind:"spoke" });
+          links.push({ id:"s|" + e.id, a:n, b, color:g.color, short:e.short, label:e.label, kind:"spoke" });
         }
         if (!members.length) continue;
         /* every body gets an orbit of its own; bodies from one group sit on neighbouring orbits */
         const grp = { id:gid, key:g.key, title:g.title, color:g.color, count:members.reduce((s, m) => s + (m.count || 1), 0), total:g.entries.length, folded:fold };
         members.forEach((m, j) => n.rings.push({ id:gid + "#" + j, grp, color:g.color, members:[m], center:n, first:j === 0 }));
-      }
-      for (const { e, g } of later) {
-        const t = next.get(e.id) || claimed.get(e.id);
-        if (t && t !== n) links.push({ id:`x|${n.id}|${e.id}|${g.key}`, a:n, b:t, color:g.color, short:e.short, label:e.label, inh:e.inherited, kind:"extra" });
       }
     }
     for (const r of order) for (const ref of (src.refs ? src.refs(r.id) : [])) {
