@@ -204,7 +204,7 @@ function xmlSource(doc, fileName){
      name) holds the query, ignoring case; the first 40 in document order are shown. Tags and their display names are
      checked once per tag, so names the viewer changes are found at once. The rest of an element's text is lower-cased the
      first time a search reaches it and kept, up to INDEX_MAX characters in all; elements past that are read from the
-     document each time, as they always were, so a file of huge texts cannot use up memory. XML can never hold the
+     document each time, so a file of huge texts cannot use up memory. XML can never hold the
      character \0, so it parts the fields: no match runs from one into the next, and lower-casing them together is the same
      as one by one. */
   const INDEX_MAX = 8e6, hay = [];
