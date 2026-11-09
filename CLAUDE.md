@@ -9,9 +9,11 @@ choices (the look, licences, removing a feature).
 A static page with no build step that shows any XML file as a solar system:
 
 - `index.html`: layout, styles and controls, the welcome panel and the Display names text
-- `src/sources.js`: XML to bodies and orbits
+- `src/explain.js`: plain-words helpers, the built-in glossary, and dictionaries (the terms an XML
+  document defines)
+- `src/sources.js`: XML to bodies and orbits, and the explanation of each element
 - `src/orbits.js`: layout and physics
-- `src/app.js`: drawing and interaction, tooltips, colour key and messages
+- `src/app.js`: drawing and interaction, tooltips, colour key, dictionary loading and messages
 
 `.github/workflows/pages.yml` publishes `main` to https://evilp0tat0.github.io/xml-orbitree/
 on every push to `main`.
