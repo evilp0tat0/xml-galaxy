@@ -8,7 +8,9 @@ const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const SAMPLE = "samples/S-201_FC_OpenS100_draft.xml";
 
 const canvas = $("sky"), ctx = canvas.getContext("2d");
-const A = { doc:null, src:null, O:null, playing:!REDUCED,
+/* examples that open with a bundled dictionary: the dataset is explained by the catalogue */
+const SAMPLE_DICTS = { "samples/S-201_dataset_example.xml":SAMPLE };
+const A = { doc:null, src:null, O:null, playing:!REDUCED, dicts:[],
   cam:{ x:0, y:0, k:1 }, camTo:null, follow:null, followK:null, hover:null, sel:null, ptr:null, pinch:null, userLoaded:false };
 
 /* ---------------- colours ---------------- */
@@ -624,10 +626,13 @@ function headerHtml(h, max = 12, per = 8){
 }
 function tipHtml(b){
   const n = A.src.node(b.id), kind = b.type === "group" ? `${b.count} × ${esc(b.label)} (folded)` : esc(n?.kind || "");
+  /* the first sentence of what defines it, or the listed value its text is */
+  const ex = b.type === "group" ? null : A.src.explain(b.id);
+  const dline = ex?.def?.text ? clip(XO.explain.firstSentence(ex.def.text), 120) : ex?.value?.label != null ? clip(ex.value.label + (ex.value.text ? ": " + XO.explain.firstSentence(ex.value.text) : ""), 120) : "";
   const act = b.type === "group" ? "Click to spread them out" : A.sel !== b.id ? "Click to centre it" + (canToggle(b) ? "; click again to show its child elements" : "") : canToggle(b) ? (b.isOpen ? "Click again to fold its child elements" : "Click again to show its child elements") : "";
   const cross = A.O.links.filter(l => l.kind !== "spoke" && (l.a === b || l.b === b)).length;
   const head = b.parent ? "" : headerHtml(A.src.header());
-  return `<b>${esc(b.label)}</b><span class="s">${kind}</span>${head}${b.parent ? `<div class="c">${chainText(b)}</div>` : ""}${cross ? `<div class="c">${cross} more link${cross === 1 ? "" : "s"} (dashed)</div>` : ""}${act ? `<div class="c">${act}</div>` : ""}`;
+  return `<b>${esc(b.label)}</b><span class="s">${kind}</span>${dline ? `<div class="c">${esc(dline)}</div>` : ""}${head}${b.parent ? `<div class="c">${chainText(b)}</div>` : ""}${cross ? `<div class="c">${cross} more link${cross === 1 ? "" : "s"} (dashed)</div>` : ""}${act ? `<div class="c">${act}</div>` : ""}`;
 }
 /* Try spots all round the body; keep the one covering least of it, its lit neighbours and the panels. */
 function placeTip(b){
@@ -696,8 +701,30 @@ function foldAll(){
 }
 
 /* ---------------- side panel ---------------- */
+/* The What this is box: plain words for every element, then what defines its name (from this file or a dictionary),
+   the listed value its text is, and when nothing defines it, the way to open a dictionary that does. */
+function whatHtml(ex, info){
+  const out = [`<h3>What this is</h3><p>${esc(ex.what)}</p>`];
+  for (const g of ex.glossary) out.push(`<div class="s">&lt;${esc(g.name)}&gt;: ${esc(g.text)}</div>`);
+  const d = ex.def, v = ex.value;
+  const facts = d => { const t = Object.entries(d.extra).map(([k, x]) => `${k} ${x}`); if (d.values) t.push(XO.explain.count(d.values, "listed value")); return t.length ? `<div class="tags">${t.map(f => `<span class="tag">${esc(f)}</span>`).join("")}</div>` : ""; };
+  if (d) {
+    const code = d.code && d.code !== d.name ? ` <span class="s">(code ${esc(d.code)})</span>` : "";
+    const lead = d.defines ? `This element defines the ${esc(d.kind)} <b>“${esc(d.name)}”</b>${code}${d.parentName ? `, a value of “${esc(d.parentName)}”` : ""}` : `<b>${esc(d.name)}</b>${code} <span class="s">· ${esc(d.kind)} · from ${esc(d.from)}</span>`;
+    out.push(`<div class="def"><div class="dh">${lead}</div>${d.text ? `<p>${esc(clip(d.text, 600))}</p>` : `<p class="s">No definition given.</p>`}${d.remarks ? `<p class="s">${esc(clip(d.remarks, 300))}</p>` : ""}${d.aliases.length ? `<div class="s">Also called ${d.aliases.map(esc).join(", ")}</div>` : ""}${facts(d)}${d.id ? `<button type="button" class="chip" data-find="${esc(d.id)}">Go to the definition</button>` : ""}${d.parentId ? `<button type="button" class="chip" data-find="${esc(d.parentId)}">Go to “${esc(clip(d.parentName, 30))}”</button>` : ""}</div>`);
+  }
+  if (v) {
+    if (v.label != null) out.push(`<div class="def"><div class="dh"><b>“${esc(v.label)}”</b>${v.code && v.code !== v.label ? ` = code ${esc(v.code)}` : ""} <span class="s">· a listed value of “${esc(v.listName)}” · from ${esc(v.from)}</span></div>${v.text ? `<p>${esc(clip(v.text, 400))}</p>` : ""}${v.listId ? `<button type="button" class="chip" data-find="${esc(v.listId)}">Go to “${esc(clip(v.listName, 30))}”</button>` : ""}</div>`);
+    else out.push(`<div class="def s">${v.total === 1 ? "Not the one listed value" : `Not one of the ${v.total} listed values`} of “${esc(v.listName)}” (${esc(v.from)}): ${v.allowed.map(esc).join(", ")}${v.total > v.allowed.length ? ", …" : ""}.</div>`);
+  }
+  if (!d && !v && info && !info.header) {
+    const root = A.src.explain(A.src.rootId);
+    out.push(`<div class="def s">No definition of &lt;${esc(XO.names.show(info.tag))}&gt; in this file${ex.dictionaries.length ? " or in " + esc(ex.dictionaries.join(", ")) : ""}.${root.schemaHint ? ` The file names its schema: ${esc(root.schemaHint)}.` : ""} <button class="link" type="button" data-act="dict">Open a schema or catalogue that defines it…</button></div>`);
+  }
+  return `<div class="box what">${out.join("")}</div>`;
+}
 function renderSide(b){
-  const side = $("side"), info = b.type === "group" ? null : A.src.info(b.id), O = A.O;
+  const side = $("side"), info = b.type === "group" ? null : A.src.info(b.id), O = A.O, ex = info ? A.src.explain(b.id) : null;
   const chain = O.chainOf(b);
   const chainHtml = chain.map((x, i) => (i ? `<span class="hop"><span class="dot" style="background:${hopColour(x)}"></span>${esc(hopText(x))} →</span>` : "")
     + (x === b ? `<span class="chip here">${esc(clip(x.label, 30))}</span>` : `<button type="button" class="chip" data-sel="${esc(x.id)}">${esc(clip(x.label, 30))}</button>`)).join(" ");
@@ -707,13 +734,16 @@ function renderSide(b){
   parts.push(`<h2>${esc(b.type === "group" ? `${b.count} × ${b.label}` : info?.title || b.label)}</h2>`);
   if (info?.code) parts.push(`<div class="code">${esc(info.code)}</div>`);
   if (b.parent) parts.push(`<div class="box"><h3>Where it comes from</h3><div class="chain">${chainHtml}</div></div>`);
+  if (ex) parts.push(whatHtml(ex, info));
   if (info?.header?.length) parts.push(`<div class="box"><h3>About this file</h3>${headerHtml(info.header, 60, 40)}</div>`);
   if (info?.def) parts.push(`<p>${esc(info.def)}</p>`);
   if (info?.facts?.length) parts.push(`<div class="tags">${info.facts.map(f => `<span class="tag">${esc(f)}</span>`).join("")}</div>`);
-  if (info?.attrs?.length) parts.push(`<div><h3>Attributes</h3><dl class="attrs">${info.attrs.slice(0, 40).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(clip(v, 200))}</dd>`).join("")}</dl></div>`);
+  /* under an attribute's value, what the glossary or a dictionary says its name means */
+  if (info?.attrs?.length) parts.push(`<div><h3>Attributes</h3><dl class="attrs">${info.attrs.slice(0, 40).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(clip(v, 200))}${ex.attrs.has(k) ? `<div class="s">${esc(ex.attrs.get(k))}</div>` : ""}</dd>`).join("")}</dl></div>`);
   if (info?.orbits?.length) parts.push(`<div><h3>Its orbits</h3><div class="tags">${info.orbits.map(o => `<span class="tag" style="border-color:${colour(o.color)};color:${colour(o.color)}">${esc(o.title)} ${o.count}</span>`).join("")}</div></div>`);
   const linkRow = (id, text, c) => `<div class="it"><span class="dot" style="background:${colour(c)}"></span><button type="button" class="chip" data-find="${esc(id)}">${esc(clip(text, 48))}</button></div>`;
   if (info?.linksOut?.length) parts.push(`<div><h3>Points to</h3><div class="list">${info.linksOut.slice(0, 30).map(o => linkRow(o.id, o.text, o.color)).join("")}</div></div>`);
+  if (info?.defined?.length) parts.push(`<div><h3>Defined in a dictionary</h3><div class="list">${info.defined.slice(0, 20).map(t => `<div class="it">${esc(t)}</div>`).join("")}</div></div>`);
   if (info?.broken?.length) parts.push(`<div><h3>Broken references</h3><div class="list">${info.broken.slice(0, 20).map(t => `<div class="it" style="color:var(--danger)">${esc(t)}</div>`).join("")}</div></div>`);
   if (info?.linksIn?.length) parts.push(`<div><h3>Pointed at by</h3><div class="list">${info.linksIn.slice(0, 30).map(o => linkRow(o.id, o.text, o.color)).join("")}</div></div>`);
   if (info?.tag) parts.push(`<div class="ren">${renameForm(info.tag, "renameSide")}</div>`);
@@ -730,6 +760,7 @@ $("side").addEventListener("click", e => {
   if (t.dataset.sel) { const n = A.O.bodies.get(t.dataset.sel); if (n) { select(n); followBody(n, false); canvas.focus({ preventScroll:true }); } }
   else if (t.dataset.find) reveal(t.dataset.find);
   else if (t.dataset.act === "close") select(null);
+  else if (t.dataset.act === "dict") $("dictIn").click();
   else if (b && t.dataset.act === "toggle") toggleOpen(b);
   else if (b && t.dataset.act === "spread") clickBody(b);
 });
@@ -764,7 +795,7 @@ function showResults(){
   const box = $("results"), q = $("q").value;
   if (!A.src || !q.trim()) { box.hidden = true; box.innerHTML = ""; return; }
   const res = A.src.search(q); resIdx = -1;
-  box.innerHTML = res.length ? res.map(r => `<div><button type="button" data-r="${esc(r.id)}"><span class="l">${esc(r.label)}</span><span class="s">${esc(r.sub)}</span></button></div>`).join("") : `<div class="empty">Nothing matches “${esc(q)}”.</div>`;
+  box.innerHTML = res.length ? res.map(r => `<div><button type="button" data-r="${esc(r.id)}"><span class="l">${esc(r.label)}</span><span class="s">${esc(r.sub)}</span>${r.d ? `<span class="d">${esc(clip(r.d, 90))}</span>` : ""}</button></div>`).join("") : `<div class="empty">Nothing matches “${esc(q)}”.</div>`;
   box.hidden = false;
 }
 $("results").addEventListener("click", e => {
@@ -798,13 +829,19 @@ function setSource(src){
   $("ready").textContent = "XML tree";
   requestAnimationFrame(() => fit(false));
 }
-function loadText(text, name){
+function parseXml(text){
   const doc = new DOMParser().parseFromString(text, "application/xml");
   /* the browser reports bad XML as an XHTML <parsererror> element; an element of that name in the file itself is fine */
   const perr = doc.getElementsByTagNameNS("http://www.w3.org/1999/xhtml", "parsererror")[0];
   if (perr || !doc.documentElement) throw new Error("This is not well-formed XML. " + ((perr?.querySelector("div") || perr)?.textContent || "").trim().slice(0, 200));
+  return doc;
+}
+function loadText(text, name){
+  const doc = parseXml(text);
   /* work everything out first, so a failure leaves the current map untouched */
   const src = XO.sources.xmlSource(doc, name);
+  /* the dictionaries are about names, not this file: they stay open */
+  src.setDictionaries(A.dicts.map(d => d.dict));
   A.doc = doc;
   $("rootLine").hidden = false; renderRootLine();
   const f = $("file"); f.hidden = false;
@@ -826,11 +863,51 @@ async function loadFile(file){
 function showErr(msg){ if (A.src) note(msg); else { $("welcome").hidden = false; $("err").textContent = msg; $("err").hidden = false; } }
 async function loadSample(url = SAMPLE){
   const my = ++loadSeq;
-  try { const r = await fetch(url); if (!r.ok) throw new Error("HTTP " + r.status); const buf = await r.arrayBuffer(); if (A.userLoaded || my !== loadSeq) return; loadText(decode(buf), url); }
+  try { const r = await fetch(url); if (!r.ok) throw new Error("HTTP " + r.status); const buf = await r.arrayBuffer(); if (A.userLoaded || my !== loadSeq) return; loadText(decode(buf), url); if (SAMPLE_DICTS[url]) await loadSampleDict(SAMPLE_DICTS[url], my); }
   catch (err) {
     if (my !== loadSeq) return;
     if (A.src) { note(location.protocol === "file:" ? "Examples need this folder served (start.bat on Windows, ./serve.sh on macOS or Linux). Open a file instead." : "Could not load the example: " + err.message); return; }
     { $("welcome").hidden = false; if (location.protocol === "file:") { $("err").textContent = "Opened straight from disk, the sample cannot load. Open a file instead, or serve this folder (start.bat on Windows, ./serve.sh on macOS or Linux)."; $("err").hidden = false; } } }
+}
+
+/* ---------------- dictionaries: files whose definitions explain the names in the open file ---------------- */
+/* a parsed file becomes a dictionary; one already open under the same title is replaced */
+function addDictionary(doc, name){
+  const title = XO.sources.titleOf(doc, name), dict = XO.explain.dictionary(doc, title);
+  if (!dict.count) { note(title + " defines no terms: nothing in it has a code or name with a definition."); return; }
+  A.dicts = A.dicts.filter(d => d.title !== title); A.dicts.push({ title, dict });
+  applyDicts();
+  note(`Dictionary added: ${title} (${XO.explain.count(dict.count, "term")})`);
+}
+function applyDicts(){
+  const p = $("dict"), names = A.dicts.map(d => d.title);
+  p.hidden = !A.dicts.length; $("dictNames").textContent = "Dictionary: " + names.join(", ");
+  p.title = A.dicts.map(d => `${d.title}: ${XO.explain.count(d.dict.count, "term")}`).join("\n") + (A.dicts.length > 1 ? "\nThe one opened last is asked first." : "");
+  A.src?.setDictionaries(A.dicts.map(d => d.dict));
+  refreshViews();
+}
+async function loadDictionaryFile(file){
+  try { const buf = await file.arrayBuffer(); addDictionary(parseXml(decode(buf)), file.name); }
+  catch (err) { showErr("Could not open " + file.name + " as a dictionary: " + err.message); }
+}
+/* the dictionary bundled with an example; nothing happens when it is already open or another file was opened meanwhile */
+async function loadSampleDict(url, my){
+  try {
+    const r = await fetch(url); if (!r.ok) throw new Error("HTTP " + r.status);
+    const doc = parseXml(decode(await r.arrayBuffer()));
+    if (my !== loadSeq || A.dicts.some(d => d.title === XO.sources.titleOf(doc, url))) return;
+    addDictionary(doc, url);
+  } catch (err) { if (my === loadSeq) note("Could not load the example's dictionary: " + err.message); }
+}
+$("dictIn").addEventListener("change", e => { const f = e.target.files[0]; if (f) loadDictionaryFile(f); e.target.value = ""; });
+$("dictOff").addEventListener("click", () => { A.dicts = []; applyDicts(); note("Dictionaries closed."); });
+/* the side panel, tooltip and search results say what the names mean: drawn again when that changes */
+function refreshViews(){
+  if (!A.O) return;
+  const s = A.O.bodies.get(A.sel); if (s) renderSide(s);
+  const h = A.O.bodies.get(A.hover); if (h && !$("tip").hidden) { $("tip").innerHTML = tipHtml(h); placeTip(h); }
+  if (!$("results").hidden) showResults();
+  kick();
 }
 
 /* ---------------- legend ---------------- */
@@ -936,14 +1013,11 @@ function renderRename(){
   box.innerHTML = (tag ? renameForm(tag, "renameIn") : `<div class="lbl">Select an element to rename it.</div>`) + reset;
 }
 function applyNames(){
-  saveNames();
+  saveNames(); XO.names.version++;
   if (!A.O) return;
   A.O.build();
   renderLegend(); renderNames();
-  const s = A.O.bodies.get(A.sel); if (s) renderSide(s);
-  const h = A.O.bodies.get(A.hover); if (h && !$("tip").hidden) { $("tip").innerHTML = tipHtml(h); placeTip(h); }
-  if (!$("results").hidden) showResults();
-  kick();
+  refreshViews();
 }
 /* the rename form lives in the Display names box and in the side panel; both work the same */
 function onRename(e){

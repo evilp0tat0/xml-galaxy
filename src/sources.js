@@ -4,6 +4,7 @@
      groups(id)    what orbits it, one group per orbit
      refs(id)      extra links to bodies elsewhere (drawn dashed)
      info(id)      what the side panel shows
+     explain(id)   what an element is, in plain words, and what defines its name
      search(q)     matching bodies
      pathTo(id)    chain of bodies from the centre to that one                          */
 (function(){
@@ -95,14 +96,37 @@ function shownStripped(tag){
 names.parse = text => String(text || "").split(/[\s,]+/).filter(Boolean);
 names.show = tag => names.custom.get(tag) || shownStripped(tag);
 names.strip = strippedName;
+/* app.js counts up each time the names change; explanations, which use the names, are then worked out afresh */
+names.version = 0;
 XO.names = names;
 const dn = tag => names.show(tag);
+
+/* The file's own name: the root's <…:name> child, or else the file name. It labels the centre, and a dictionary. */
+const nameChild = root => { for (let c = root.firstElementChild; c; c = c.nextElementSibling) if (c.localName === "name" && !c.firstElementChild && c.textContent.trim()) return c; return null; };
+function titleOf(doc, fileName){
+  const root = doc.documentElement, n = nameChild(root);
+  return n ? n.textContent.trim() : String(fileName || "").split(/[\\/]/).pop() || root.nodeName;
+}
 
 /* ---------------- any XML: the root element is the sun, child elements orbit their parent ---------------- */
 const KEY_ATTRS = ["name", "id", "code", "key", "title", "label", "type"];
 const KEY_CHILDREN = ["name", "code", "title", "label", "identifier"];
+/* the children that hold an element's human name (featureName > name too), for the explanation and the search */
+const NAME_TAGS = new Set(["name", "title", "label"]);
 const ID_ATTRS = new Set(["id", "ID", "Id", "xml:id"]);
 const REF_ATTR = n => /^(ref|href|idref|idrefs|target|refid|xref)$/i.test(n) || /Ref$/.test(n) || /^ref[A-Z]/.test(n);
+const ordinal = n => n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd", "th", "th", "th", "th", "th", "th"][n % 10]);
+/* how many kinds of term the root's dictionary sentence names */
+const KINDS_SHOWN = 8;
+/* what a short text plainly is, when that is obvious from its shape */
+function typeWord(t){
+  if (/^[-+]?\d+([.,]\d+)?$/.test(t)) return "a number";
+  if (/^\d{4}-\d{2}(-\d{2})?(T[\d:.]+(Z|[+-]\d{2}:?\d{2})?)?$/.test(t)) return "a date";
+  if (/^(true|false)$/i.test(t)) return "yes or no";
+  if (/^https?:\/\//i.test(t)) return "a web address";
+  if (/^[-+]?\d+(\.\d+)?(\s+[-+]?\d+(\.\d+)?)+$/.test(t)) return "coordinates";
+  return "";
+}
 
 function xmlSource(doc, fileName){
   const E = [];              /* index → element record */
@@ -114,7 +138,7 @@ function xmlSource(doc, fileName){
   /* One walk in document order collects all that needs every element: its record, tag counts, ids and references.
      It keeps no stack, so very deep files cannot overflow one; tags keep their prefix (a:item and b:item differ). */
   for (let el = doc.documentElement, up = null; el; ) {
-    const r = { i:E.length, el, parent:up, depth:up ? up.depth + 1 : 0, tag:el.nodeName, kids:[], desc:0, key:null };
+    const r = { i:E.length, el, parent:up, depth:up ? up.depth + 1 : 0, tag:el.nodeName, kids:[], desc:0, key:null, name:null };
     E.push(r); if (up) up.kids.push(r);
     tagCount.set(r.tag, (tagCount.get(r.tag) || 0) + 1);
     if (el.hasAttributes()) for (const n of el.getAttributeNames()) {
@@ -152,11 +176,30 @@ function xmlSource(doc, fileName){
     }
     return r.key = k;
   }
+  /* An element's human name, when it has one: a name-like child, or a name-like grandchild through a wrapper that is itself
+     named for a name (featureName > name) and appears once. Worked out when first asked for, like keyOf. */
+  function nameOf(r){
+    if (r.name !== null) return r.name;
+    let v = "";
+    find: {
+      for (const k of r.kids) if (!k.kids.length && NAME_TAGS.has(k.el.localName)) { v = k.el.textContent.trim(); if (v) break find; }
+      let seen = 0;
+      for (const k of r.kids) {
+        if (seen++ >= 16) break;
+        if (!k.kids.length || !/name|title|label/i.test(k.el.localName)) continue;
+        countSiblings(r); if (r.same.get(k.tag) > 1) continue;
+        for (const g of k.kids) if (!g.kids.length && NAME_TAGS.has(g.el.localName)) { v = g.el.textContent.trim(); if (v) break find; }
+        if (k.kids.length === 1 && !k.kids[0].kids.length) { v = k.kids[0].el.textContent.trim(); if (v) break find; }
+      }
+    }
+    return r.name = v;
+  }
+  /* the value of an element's id attribute, or "" */
+  const idOf = r => { const el = r.el; if (el.hasAttributes()) for (const a of el.attributes) if (ID_ATTRS.has(a.name) || a.localName === "id") return a.value; return ""; };
 
-  /* The file's own name: the root's <…:name> child, or else the file name. It labels the centre. */
-  const R0 = E[0];
-  const nameRec = R0.kids.find(k => k.el.localName === "name" && !k.kids.length && k.el.textContent.trim());
-  const fileTitle = nameRec ? nameRec.el.textContent.trim() : String(fileName || "").split(/[\\/]/).pop() || R0.tag;
+  const R0 = E[0], nameEl = nameChild(R0.el);
+  const nameRec = nameEl ? R0.kids.find(k => k.el === nameEl) : null;
+  const fileTitle = titleOf(doc, fileName);
   /* labels follow the chosen display names, so they are worked out each time */
   const labelOf = r => { if (r.depth === 0) return fileTitle; const k = keyOf(r); return k ? dn(r.tag) + " · " + clip(k, 40) : dn(r.tag); };
 
@@ -198,11 +241,149 @@ function xmlSource(doc, fileName){
     }
   }
   /* only needed while the file is read; the functions below keep this scope alive as long as the file is shown */
-  ids.clear(); attrKinds.clear(); refAttrs.length = 0;
+  ids.clear(); refAttrs.length = 0;
 
-  /* Search: an element matches when its tag, its display name, its key or an attribute value (or, for the root, the file's
-     name) holds the query, ignoring case; the first 40 in document order are shown. Tags and their display names are
-     checked once per tag, so names the viewer changes are found at once. The rest of an element's text is lower-cased the
+  /* ---------------- explanations ----------------
+     Definitions come from dictionaries: the file's own (read the first time an explanation needs it: a catalogue explains
+     itself), then the companion files the viewer opened, the one opened last first: it was opened for the file now
+     shown, so it wins over one left open from an earlier file when both define a name. */
+  const EX = XO.explain;
+  let own = null, companions = [];
+  function ownDict(){
+    if (own) return own;
+    own = EX.dictionary(doc, fileTitle);
+    if (own.count) for (const r of E) { const e = own.byEl.get(r.el); if (e) e.rec = r; }
+    return own;
+  }
+  const dicts = () => ownDict().count ? [own, ...companions] : companions;
+  /* the entry for a code or name: as written first (NavigationLine is a feature type, navigationLine a role), then ignoring case */
+  const lookupTerm = key => { for (const d of dicts()) { const e = EX.lookup(d, key); if (e) return e; } return null; };
+  /* the entry for a tag, by its local name; once per tag, for all dictionaries and for the companions alone */
+  const tagMemo = new Map(), tagMemoC = new Map();
+  function entryForTag(tag, companionsOnly){
+    const memo = companionsOnly ? tagMemoC : tagMemo;
+    let e = memo.get(tag);
+    if (e === undefined) { const key = localOf(tag); e = null; for (const d of companionsOnly ? companions : dicts()) { e = EX.lookup(d, key); if (e) break; } memo.set(tag, e); }
+    return e;
+  }
+  /* inside one of the file's own definitions (the <name> of a catalogue's attribute, say), an element is part of that
+     definition's structure: only a companion dictionary may explain its tag */
+  const insideOwnEntry = r => { if (!ownDict().count) return false; for (let p = r.parent; p; p = p.parent) if (own.byEl.has(p.el)) return true; return false; };
+  const tagEntry = r => entryForTag(r.tag, insideOwnEntry(r));
+  /* the entry a reference attribute names, when its value is no id in this file: ref="beaconShape" → the beaconShape entry */
+  function refEntryOf(r){
+    const b = broken.get(r); if (!b) return null;
+    for (const x of b) { const e = lookupTerm(x.v); if (e) return e; }
+    return null;
+  }
+  /* an entry's listed values, or those of the type its `type` names in the same dictionary (an xs:element → its xs:simpleType) */
+  function valuesOf(e){
+    if (e.values) return e.values;
+    const t = e.extra.type; if (!t) return null;
+    const te = EX.lookup(e.dict, localOf(t));
+    return te && te !== e && te.values || null;
+  }
+  /* Which listed value a short text is: of the entry for the element's tag, or else of one the element sits in: an ancestor's
+     entry, or, when the element is itself a value (<value>, <enumeration>, a child of <permittedValues>), the entry a
+     reference beside it names (a catalogue's permitted <value>s under an attribute binding). A bound (<lower>, <upper>,
+     minOccurs …) is a count, never one of the values. { entry, value } with value null when the text is none of the listed
+     values; null when no list applies. */
+  const BOUND_TAG = /^(lower|upper|multiplicity|minoccurs|maxoccurs|min|max)$/i;
+  const valueLike = r => EX.isValue(r.el.localName) || (r.parent && /values$/i.test(r.parent.el.localName));
+  function valueFor(r){
+    if (r.kids.length || BOUND_TAG.test(r.el.localName)) return null;
+    const t = r.el.textContent.trim(); if (!t || t.length > 80) return null;
+    let e = tagEntry(r), vals = e && valuesOf(e);
+    if (!vals) {
+      e = null;
+      const besideRef = valueLike(r);
+      for (let anc = r.parent, n = 0; anc && n < 2 && !vals; anc = anc.parent, n++) {
+        const a = tagEntry(anc); if (a && (vals = valuesOf(a))) { e = a; break; }
+        if (besideRef) for (let i = 0; i < anc.kids.length && i < 64; i++) { const c = refEntryOf(anc.kids[i]); if (c && (vals = valuesOf(c))) { e = c; break; } }
+      }
+    }
+    if (!vals) return null;
+    const q = t.toLowerCase(), by = f => vals.find(v => String(f(v) ?? "").toLowerCase() === q);
+    return { entry:e, value:by(v => v.code) || by(v => v.term) || by(v => v.name) || null };
+  }
+  /* the URL(s) of the XML Schema the root says defines its names */
+  function schemaUrls(el){
+    let out = "";
+    if (el.hasAttributes()) for (const a of el.attributes) {
+      if (a.localName === "noNamespaceSchemaLocation") out = a.value.trim();
+      else if (a.localName === "schemaLocation") out = a.value.trim().split(/\s+/).filter((_, i) => i % 2 === 1).join(", ");
+    }
+    return out || null;
+  }
+  /* what the side panel shows of an entry; `defines`: the element is the definition itself; `id`: the defining element,
+     when it is in this file and is another element */
+  const defOf = (e, r, defines) => ({ name:e.name, code:e.code, kind:e.kind, text:e.def, remarks:e.remarks, aliases:e.aliases, extra:e.extra, from:e.dict.title,
+    id:e.rec && e.rec !== r ? id(e.rec) : null, defines, parentName:e.parent ? e.parent.name : null, parentId:e.parent && e.parent.rec ? id(e.parent.rec) : null, values:e.values ? e.values.length : 0 });
+  /* explanations are kept per element while the file is shown; they go when the dictionaries or the display names change */
+  const explainMemo = new Map();
+  let memoNames = names.version;
+  function explainOf(r){
+    const el = r.el, kids = r.kids, n = kids.length, dictionaries = dicts();
+    const direct = directText(el), sents = [];
+    let schemaHint = null;
+    const ownE = ownDict().count ? own.byEl.get(el) : null;
+    if (r.depth === 0) {
+      sents.push(`The root element: everything in the file is inside it. It has ${EX.count(n, "child element")} of ${EX.count(new Set(kids.map(k => k.tag)).size, "kind")}.`);
+      /* the most numerous kinds, up to KINDS_SHOWN: a file with a kind per term would list thousands */
+      if (own.count) { const ks = [...own.kinds].sort((a, b) => b[1] - a[1]); sents.push(`This file is a dictionary: it defines ${EX.count(own.count, "term")} (${ks.slice(0, KINDS_SHOWN).map(([k, c]) => EX.count(c, k)).join(", ")}${ks.length > KINDS_SHOWN ? ", …" : ""}).`); }
+      if (companions.length) sents.push(`Explained with: ${companions.map(d => d.title).join(", ")}.`);
+      schemaHint = schemaUrls(el);
+      if (schemaHint) sents.push(`It says its names are defined by the schema at ${schemaHint}. Open that .xsd file as a dictionary to see their definitions.`);
+    } else {
+      const refs = el.hasAttributes() ? [...el.attributes].filter(a => kindOf(a.name) === 2) : [];
+      if (n >= 2 && kids.every(k => k.tag === kids[0].tag)) sents.push(`A list of ${n} <${dn(kids[0].tag)}> elements${kids.every(k => idOf(k)) ? ", each with its own id" : ""}.${direct ? " It also holds text." : ""}`);
+      else if (n === 1) sents.push(`A container with one part: <${dn(kids[0].tag)}>.${direct ? " It also holds text." : ""}`);
+      else if (n) { const tagsIn = [...new Set(kids.map(k => k.tag))]; sents.push(`A container with ${n} parts: ${tagsIn.slice(0, 5).map(t => "<" + dn(t) + ">").join(", ")}${tagsIn.length > 5 ? ", …" : ""}.${direct ? " It also holds text." : ""}`); }
+      else if (!direct && refs.length) {
+        const to = out.get(r), e = to ? null : refEntryOf(r), v = refs[0].value.replace(/^#/, "");
+        if (to) sents.push(`A link: it points at ${labelOf(to[0].to)}${to.length > 1 ? ` (and ${EX.count(to.length - 1, "other")})` : ""} instead of holding data of its own.`);
+        else if (e) sents.push(`A link to “${clip(v, 60)}”: the ${e.kind} “${e.name}”, defined ${e.dict === own ? "in this file" : "in " + e.dict.title}.`);
+        else sents.push(`A link to “${clip(v, 60)}”, which is not in this file.`);
+      }
+      else if (direct) { const tw = typeWord(direct); sents.push(`A field: holds the value “${clip(direct, 80)}”${tw ? ", " + tw : ""}.`); }
+      else if (el.attributes.length) sents.push("Holds no text and no child elements; its attributes carry the data.");
+      else sents.push("An empty element: no text, no attributes and no child elements.");
+      /* who it is: its name (a name-like child, else its name attribute; the definition block says it when the element is a
+         definition) and its id */
+      const nm = ownE ? "" : (n ? nameOf(r) : "") || el.getAttribute("name") || "", idv = idOf(r), pointers = (inn.get(r) || []).length, bits = [];
+      if (nm) bits.push(`Its name is “${clip(nm, 60)}”`);
+      if (idv) bits.push(`${nm ? "its" : "Its"} id is “${clip(idv, 60)}”`);
+      if (bits.length) sents.push(bits.join(" and ") + (idv && pointers ? `; ${EX.count(pointers, "other element")} point${pointers === 1 ? "s" : ""} at it` : "") + ".");
+      /* its place among siblings of the same tag */
+      const p = r.parent; countSiblings(p);
+      const same = p.same.get(r.tag);
+      if (same > 1) sents.push(`It is the ${ordinal(r.nth)} of ${same} <${dn(r.tag)}> elements in <${dn(p.tag)}>.`);
+    }
+    /* what defines it: the element is a definition itself, or a reference to one, or its tag is defined */
+    let def = null;
+    if (ownE) def = defOf(ownE, r, true);
+    else { const e = refEntryOf(r) || tagEntry(r); if (e) def = defOf(e, r, false); }
+    const vf = valueFor(r), v = vf && vf.value, vals = vf && valuesOf(vf.entry);
+    const value = vf ? { label:v ? v.name : null, code:v ? v.code : null, text:v ? v.def : null, from:vf.entry.dict.title, listName:vf.entry.name,
+      listId:vf.entry.rec && vf.entry.rec !== r ? id(vf.entry.rec) : null, total:vals.length,
+      /* when the text is none of them: the first listed values, each with the start of its meaning when that is not just its name */
+      allowed:v ? null : vals.slice(0, 12).map(x => x.name + (x.def && x.def !== x.name ? " (" + clip(EX.firstSentence(x.def), 60) + ")" : "")) } : null;
+    const g = EX.glossary(r.tag), attrs = new Map();
+    if (el.hasAttributes()) for (const a of el.attributes) {
+      let t = EX.glossary(a.name);
+      if (!t) { const e = lookupTerm(localOf(a.name)); if (e && e.kind === "attribute" && e.def) t = e.def; }
+      if (t) attrs.set(a.name, t);
+    }
+    /* what: plain words; def: what defines the name; value: the listed value its text is; glossary: for its own tag; attrs: per
+       attribute name; schemaHint: the schema URL the root names; dictionaries: the companion titles, for the no-definition line */
+    return { what:sents.join(" "), def, value, glossary:g ? [{ name:r.tag, text:g }] : [], attrs, schemaHint, dictionaries:dictionaries.filter(d => d !== own).map(d => d.title) };
+  }
+  const directText = el => [...el.childNodes].filter(n => n.nodeType === 3 || n.nodeType === 4).map(n => n.nodeValue).join("").trim();
+
+  /* Search: an element matches when its tag, its display name, its key, its name or an attribute value (or, for the root,
+     the file's name) holds the query, ignoring case; the first 40 in document order are shown. Tags and their display
+     names are checked once per tag, so names the viewer changes are found at once; a tag also matches when a dictionary's
+     name or alias for it holds the query, or every word of it ("lateral buoy" and "BOYLAT" find <BuoyLateral>). The rest of an element's text is lower-cased the
      first time a search reaches it and kept, up to INDEX_MAX characters in all; elements past that are read from the
      document each time, so a file of huge texts cannot use up memory. XML can never hold the
      character \0, so it parts the fields: no match runs from one into the next, and lower-casing them together is the same
@@ -214,6 +395,7 @@ function xmlSource(doc, fileName){
     if (h !== undefined || hayLen >= INDEX_MAX) return h ?? null;
     const el = r.el;
     let s = keyOf(r);
+    const nm = nameOf(r); if (nm && nm !== s) s += "\0" + nm;
     if (el.hasAttributes()) for (const n of el.getAttributeNames()) s += "\0" + el.getAttribute(n);
     if (r.depth === 0) s += "\0" + fileTitle;
     if ((hayLen += s.length) > INDEX_MAX) return null;
@@ -222,7 +404,7 @@ function xmlSource(doc, fileName){
   function textHas(r, q){
     const h = textOf(r);
     if (h !== null) return h.includes(q);
-    if (keyOf(r).toLowerCase().includes(q) || (r.depth === 0 && fileTitle.toLowerCase().includes(q))) return true;
+    if (keyOf(r).toLowerCase().includes(q) || nameOf(r).toLowerCase().includes(q) || (r.depth === 0 && fileTitle.toLowerCase().includes(q))) return true;
     const el = r.el;
     if (el.hasAttributes()) for (const n of el.getAttributeNames()) if (el.getAttribute(n).toLowerCase().includes(q)) return true;
     return false;
@@ -258,16 +440,36 @@ function xmlSource(doc, fileName){
     search(q){
       q = q.trim().toLowerCase(); if (!q) return [];
       /* the tags whose own name or display name holds the query */
-      const tagHit = new Map();
-      for (const t of tags) tagHit.set(t, t.toLowerCase().includes(q) || dn(t).toLowerCase().includes(q));
+      const tagHit = new Map(), words = q.split(/\s+/).filter(Boolean);
+      const nameHit = t => { const e = entryForTag(t, false); return !!e && [e.name, ...e.aliases].some(s => { s = s.toLowerCase(); return s.includes(q) || words.every(w => s.includes(w)); }); };
+      for (const t of tags) tagHit.set(t, t.toLowerCase().includes(q) || dn(t).toLowerCase().includes(q) || nameHit(t));
       const text = !q.includes("\0"), res = [];
       for (let i = 0; i < E.length && res.length < 40; i++) { const r = E[i]; if (tagHit.get(r.tag) || (text && textHas(r, q))) res.push(r); }
-      return res.map(r => ({ id:id(r), label:labelOf(r), sub:xpath(r) }));
+      /* d: what the tag's dictionary entry calls it, and the first sentence of its definition */
+      return res.map(r => { const e = tagEntry(r); return { id:id(r), label:labelOf(r), sub:xpath(r), d:e ? e.name + (e.def ? ": " + EX.firstSentence(e.def) : "") : "" }; });
     },
+    explain(x){
+      const r = rec(x); if (!r) return null;
+      if (memoNames !== names.version) { explainMemo.clear(); memoNames = names.version; }
+      let m = explainMemo.get(r.i);
+      if (!m) explainMemo.set(r.i, m = explainOf(r));
+      return m;
+    },
+    /* the companion dictionaries, the one opened last first (see the note above); explanations are worked out afresh */
+    setDictionaries(list){ companions = [...list].reverse(); tagMemo.clear(); tagMemoC.clear(); explainMemo.clear(); },
     info(x){
       const r = rec(x); if (!r) return null;
-      const direct = [...r.el.childNodes].filter(n => n.nodeType === 3 || n.nodeType === 4).map(n => n.nodeValue).join("").trim();
+      const direct = directText(r.el);
       const kidTags = new Map(); for (const k of r.kids) kidTags.set(k.tag, (kidTags.get(k.tag) || 0) + 1);
+      /* a reference that is no id in this file may name a defined term: a link to the definition when that is in this
+         file, a plain row when it is in a companion dictionary, a broken reference otherwise */
+      const linksOut = (out.get(r) || []).map(o => ({ id:id(o.to), text:"@" + o.attr + " → " + labelOf(o.to), color:"ref" })), defined = [], brokenRows = [];
+      for (const b of broken.get(r) || []) {
+        const e = lookupTerm(b.v);
+        if (!e) brokenRows.push("@" + b.attr + " → " + b.v + " (not found in this file)");
+        else if (e.rec) linksOut.push({ id:id(e.rec), text:"@" + b.attr + " → " + e.name + " (defined in this file)", color:"ref" });
+        else defined.push("@" + b.attr + " → " + e.name + " (in " + e.dict.title + ")");
+      }
       return {
         kind:"Element <" + dn(r.tag) + ">" + (r.depth === 0 ? " · the root element" : ""), title:r.depth === 0 ? labelOf(r) : keyOf(r) || dn(r.tag), code:xpath(r), tag:r.tag,
         header:r.depth === 0 ? header() : null,
@@ -275,9 +477,9 @@ function xmlSource(doc, fileName){
         attrs:[...r.el.attributes].map(a => [a.name, a.value]),
         facts:["size " + score(r) + " of 100", r.kids.length ? r.kids.length + " child element" + (r.kids.length === 1 ? "" : "s") : "no child elements", r.desc > r.kids.length ? r.desc + " elements inside in all" : "", r.el.namespaceURI ? "ns " + r.el.namespaceURI : ""].filter(Boolean),
         orbits:[...kidTags].map(([t, n]) => ({ color:"t:" + t, title:"<" + dn(t) + ">", count:n })),
-        linksOut:(out.get(r) || []).map(o => ({ id:id(o.to), text:"@" + o.attr + " → " + labelOf(o.to), color:"ref" })),
+        linksOut, defined,
         linksIn:(inn.get(r) || []).map(o => ({ id:id(o.from), text:labelOf(o.from) + " @" + o.attr, color:"ref" })),
-        broken:(broken.get(r) || []).map(b => "@" + b.attr + " → " + b.v + " (not found in this file)")
+        broken:brokenRows
       };
     }
   };
@@ -291,5 +493,5 @@ function xmlSource(doc, fileName){
   }
 }
 
-XO.sources = { xmlSource, inkFor };
+XO.sources = { xmlSource, titleOf, inkFor };
 })();
