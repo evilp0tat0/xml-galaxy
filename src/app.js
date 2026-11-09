@@ -811,8 +811,8 @@ function loadText(text, name){
   f.className = "pill" + (name.startsWith("samples/") ? " warn" : "");
   f.textContent = name.startsWith("samples/") ? "Example: " + name.slice(8).replace(/_/g, " ").replace(/\.xml$/, "") : name;
   f.title = name;
-  /* the heading and the browser tab carry the file's own name */
-  const h = $("docTitle"); h.textContent = src.title; h.title = src.title; document.title = src.title;
+  /* the top bar shows the file's own name beside the app's; the browser tab shows both */
+  const h = $("docTitle"); h.textContent = src.title; h.title = src.title; document.title = src.title + " · XML Orbitree";
   $("welcome").hidden = true;
   setSource(src);
 }
