@@ -1,4 +1,4 @@
-# XML viewer: a small local web server for Windows, started by start.bat.
+# XML Orbitree: a small local web server for Windows, started by start.bat.
 # It serves this folder (so the built-in examples can load) and opens the page in your browser.
 # Only this computer can reach it (localhost). Close the window to stop it.
 param([int]$Port = 8080)
@@ -17,7 +17,7 @@ if (-not $listener) { Write-Host "Could not start the local server (ports $Port-
 
 $url = "http://localhost:$Port/"
 Write-Host ""
-Write-Host "  The XML viewer is running at $url"
+Write-Host "  XML Orbitree is running at $url"
 Write-Host "  Keep this window open while you use it. Close it to stop."
 Write-Host ""
 Start-Process $url
