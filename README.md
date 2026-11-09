@@ -1,4 +1,4 @@
-# XML viewer
+# XML Orbitree
 
 See any XML file as a solar system. The root element is the sun; every element's children orbit it, each on an orbit of its own (no two bodies ever share one), and each child can open its own orbits of moons. The look follows GitNexus: flat glowing dots on a near-black background, thin curved lines, violet accents. What orbits what is fixed by the file and never changes. Bodies drift on their orbits, you can drag them about, and they drift back.
 
@@ -8,7 +8,7 @@ No build step, no install. Apart from its own files, the page fetches only two G
 
 ## Try it online
 
-<https://evilp0tat0.github.io/xml-galaxy/>
+<https://evilp0tat0.github.io/xml-orbitree/>
 
 `.github/workflows/pages.yml` publishes it to GitHub Pages on every push to `main`.
 

@@ -13,14 +13,15 @@ A static page with no build step that shows any XML file as a solar system:
 - `src/orbits.js`: layout and physics
 - `src/app.js`: drawing and interaction, tooltips, colour key and messages
 
-`.github/workflows/pages.yml` publishes `main` to https://evilp0tat0.github.io/xml-galaxy/
+`.github/workflows/pages.yml` publishes `main` to https://evilp0tat0.github.io/xml-orbitree/
 on every push to `main`.
 
 Owner decisions; keep them:
 
-- No app name, and none of the old ones (XML Orbit, XML Galaxy, XML Orbitree), although the
-  repository is called xml-galaxy. The page is "XML viewer". The heading and browser tab show
-  the open file's own name: its root's `<…:name>` child, else the file name.
+- The project is XML Orbitree, like the repository (`xml-orbitree`). The page itself shows
+  no app name: it is "XML viewer", and the heading and browser tab show the open file's own
+  name: its root's `<…:name>` child, else the file name. The project had other names before;
+  they were removed from the whole history, so never write them anywhere, not even as history.
 - Only the plain XML tree view. The S-100 "By meaning" view is gone for good.
 - The S-201 example files stay. The OpenS100 one is third-party (MPL-2.0): don't edit its
   content, and keep its notice comment and the README's licence note. Rules 3 and 4 don't
