@@ -75,7 +75,15 @@ kbd{font:10px var(--font-mono);color:var(--faint);border:1px solid var(--line);b
 .btn.primary:hover{background:#6d28d9;border-color:#6d28d9}
 select.btn{appearance:none;padding-right:26px;background-image:linear-gradient(45deg,transparent 50%,var(--faint) 50%),linear-gradient(135deg,var(--faint) 50%,transparent 50%);background-position:calc(100% - 13px) 55%,calc(100% - 9px) 55%;background-size:4px 4px;background-repeat:no-repeat}
 select.btn option{background:var(--surface);color:var(--text)}
+/* the menu always shows its own name, so it need not be as wide as its longest example */
+#examples{width:112px}
 .hacts{display:flex;gap:8px;align-items:center}
+/* the view switch: two buttons joined into one */
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface)}
+.seg button{padding:6px 11px;border:0;background:none;cursor:pointer;font-size:13px;white-space:nowrap;color:var(--muted);transition:background .15s,color .15s}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button:hover{background:var(--hover);color:var(--text)}
+.seg button.on{background:color-mix(in srgb,var(--accent) 20%,transparent);color:var(--accent-text)}
 
 /* the file's root element, small but clear, at the top of the map */
 .rootline{position:fixed;z-index:5;top:calc(var(--top) + 9px);left:50%;transform:translateX(-50%);max-width:calc(100vw - 32px);display:flex;align-items:center;gap:8px;padding:4px 11px;border-radius:7px;border:1px solid var(--line);background:color-mix(in srgb,var(--elevated) 92%,transparent);backdrop-filter:blur(8px);white-space:nowrap;overflow:hidden}
@@ -89,6 +97,7 @@ select.btn option{background:var(--surface);color:var(--text)}
 .ctrls button.on{border-color:color-mix(in srgb,var(--accent) 35%,transparent);background:color-mix(in srgb,var(--accent) 20%,transparent);color:var(--accent-text)}
 .ctrls svg{width:16px;height:16px}
 .ctrls hr{width:100%;height:1px;border:0;margin:3px 0;background:var(--line)}
+.ctrls hr:has(+ [hidden]){display:none}
 body:has(.side:not([hidden])) .ctrls{right:calc(min(380px,100vw) + 14px)}
 @media (min-width:761px){
   body:has(.side:not([hidden])) .rootline{left:calc((100vw - min(380px,100vw)) / 2)}
@@ -196,6 +205,7 @@ body.ninfo-off .ninfo{display:none}
   :root{--hdr:96px}
   .brand h1{display:none}
   .pill{display:none}
+  .seg button span{display:none}
   .searchwrap{order:3;flex-basis:100%;max-width:none}
   .hacts{margin-left:auto}
   .side{top:auto;height:46vh;width:100%;border-left:0;border-top:1px solid var(--line)}
@@ -211,7 +221,7 @@ body.ninfo-off .ninfo{display:none}
 </style>
 </head>
 <body>
-<canvas id="sky" tabindex="0" aria-label="Orbit map of the XML file. Use the search box to find and open elements; the side panel describes the selected one and explains what it is, with its definition from the file or from a dictionary you open."></canvas>
+<canvas id="sky" tabindex="0" aria-label="Map of the XML file, as orbits or as a tree. Use the search box to find and open elements; the side panel describes the selected one and explains what it is, with its definition from the file or from a dictionary you open."></canvas>
 
 <header class="top" id="top">
   <div class="brand">
@@ -227,6 +237,10 @@ body.ninfo-off .ninfo{display:none}
     <div class="glass results" id="results" hidden role="listbox"></div>
   </div>
   <div class="hacts">
+    <div class="seg" id="views" role="group" aria-label="View">
+      <button type="button" data-view="orbit" class="on" aria-pressed="true" title="Orbit view: each element's children circle it">Orbit<span> view</span></button>
+      <button type="button" data-view="tree" aria-pressed="false" title="Tree view: each element's children branch upward from it">Tree<span> view</span></button>
+    </div>
     <select class="btn" id="examples" aria-label="Open an example">
       <option value="">Examples</option>
       <option value="samples/S-201_FC_OpenS100_draft.xml">S-201 Feature Catalogue (2016 draft)</option>
@@ -271,11 +285,11 @@ body.ninfo-off .ninfo{display:none}
 
 <aside class="glass side" id="side" hidden aria-live="polite"></aside>
 <div class="tip" id="tip" hidden></div>
-<footer class="status" id="foot"><span class="ready" id="ready">Ready</span><span id="status"></span><span class="zoom" id="zoomPct"></span></footer>
+<footer class="status" id="foot"><span class="ready" id="ready"></span><span id="status"></span><span class="zoom" id="zoomPct"></span></footer>
 
 <section class="glass welcome" id="welcome" hidden>
   <h2>See an XML file as a solar system</h2>
-  <p>Open or drop any XML file, or paste XML anywhere on this page. The root element is the sun. Each element's children orbit it, each on an orbit of its own. Click a body to centre it; click it again to open its own orbits, or show every orbit at once with the button at the bottom right. What orbits what never changes; you can drag bodies about and they drift back. The side panel explains what each element is in plain words, with its definition when the file, or a schema or catalogue you open as a dictionary, defines its name.</p>
+  <p>Open or drop any XML file, or paste XML anywhere on this page. The root element is the sun. Each element's children orbit it, each on an orbit of its own. Click a body to centre it; click it again to open its own orbits, or show every orbit at once with the button at the bottom right. What orbits what never changes; you can drag bodies about and they drift back. That is the Orbit view. The Tree view, chosen in the top bar, shows the same elements as a tree: the root element at the bottom, and each element's children above it, on lines going up at between 45° and 135°. The side panel explains what each element is in plain words, with its definition when the file, or a schema or catalogue you open as a dictionary, defines its name.</p>
   <p class="err" id="err" hidden></p>
   <div class="acts"><button class="btn primary" id="openBtn2" type="button">Open XML</button><button class="btn" id="sampleBtn" type="button">Load the S-201 sample</button></div>
 </section>

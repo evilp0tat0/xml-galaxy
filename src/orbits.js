@@ -3,17 +3,22 @@
    can be dragged away, and drifts back when let go. Its moons follow it wherever it goes.
    Bodies keep their own size at every depth. Orbits sit closer together at each level down: the sun's are
    spaced widest, and the orbits around a moon are half as far apart as those around its planet, and so on.
-   Every orbit still clears each body's whole system. */
+   Every orbit still clears each body's whole system.
+   The same bodies can be laid out as a tree instead (mode "tree"): the root at the bottom, and each open body's
+   children on an arc above it, every line from parent to child rising at between 45° and 135°. */
 (function(){
 "use strict";
 const XO = window.XO;
 const LEVEL = 0.5;                       /* orbit gaps (and the speed reference) around a moon, relative to its planet's */
 const unit = depth => Math.pow(LEVEL, Math.max(0, depth - 1));
 const MAX_UNFOLDED = 48;                 /* more children than this and the biggest groups fold */
+const BRANCH_GAP = 16;                   /* tree: the room kept on each side of a body, between it and the next branch */
+const BRANCH_RISE = 60;                  /* tree: how far above a body its children sit, at least (plus both bodies' sizes) */
 
 class Orbits {
   constructor(src){
     this.src = src;
+    this.mode = "orbit";                /* "orbit": children circle their parent; "tree": they branch upward from it */
     /* bodies whose own orbits are shown; a file starts as one closed circle */
     this.open = new Set();
     this.spread = new Set();            /* folded groups the user has spread out */
@@ -75,7 +80,10 @@ class Orbits {
       if (t && t !== r) links.push({ id:`r|${r.id}|${ref.to}`, a:r, b:t, color:ref.color, short:ref.short, kind:"cross" });
     }
     /* sizes first (children before parents: reverse breadth-first order), then swap in, so nothing half-built is ever drawn */
-    for (let i = order.length - 1; i >= 0; i--) this.layoutNode(order[i]);
+    const tree = this.mode === "tree";
+    for (let i = order.length - 1; i >= 0; i--) if (tree) this.layoutBranches(order[i]); else this.layoutNode(order[i]);
+    /* tree: where each body comes to rest, the root at 0, 0 (parents come first in the order) */
+    if (tree) for (const b of order) { const p = b.parent; b.tx = p ? p.tx + b.ox : 0; b.ty = p ? p.ty + b.oy : 0; }
     for (const [id, b] of prev) if (!next.has(id)) this.ghosts.push({ x:b.x, y:b.y, size:b.size, color:b.color, to:b.parent && next.get(b.parent.id) || null, life:1 });
     if (this.ghosts.length > 400) this.ghosts.splice(0, this.ghosts.length - 400);
     for (const b of order) {
@@ -108,25 +116,46 @@ class Orbits {
     n.sysR = n.rings.length ? r + prevExt + (d ? 24 * u : 0) : 0;
   }
 
+  /* Branch places for one body in the tree, once its children's own branches are placed. Each child's whole subtree
+     gets a column of its own, side by side, so no two branches can cross; the body sits under the middle of its
+     children, and they sit on an arc around it, wide enough that the outermost lines rise at exactly 45° and 135°. */
+  layoutBranches(n){
+    const kids = n.rings.map(r => r.members[0]), half = n.size + BRANCH_GAP;
+    n.rings = [];
+    if (!kids.length) { n.wl = n.wr = half; return; }
+    let w = 0;
+    for (const m of kids) { m.ox = w + m.wl; w += m.wl + m.wr; }
+    const first = kids[0].ox, last = kids[kids.length - 1].ox, mid = (first + last) / 2;
+    const big = kids.reduce((v, m) => Math.max(v, m.size), 0);
+    const R = Math.max(n.size + big + BRANCH_RISE, (last - first) / 2 * Math.SQRT2);
+    for (const m of kids) { m.ring = null; m.ox -= mid; m.oy = -Math.sqrt(Math.max(0, R * R - m.ox * m.ox)); }
+    /* how far the subtree reaches to the left and right of this body, and how far its own children reach */
+    n.wl = Math.max(half, mid); n.wr = Math.max(half, w - mid);
+    n.sysR = R + big;
+  }
+
   /* One physics step. Parents come first in `order`, so moons aim at where their planet actually is. */
   step(dt, spin){
     if (spin) this.t += dt;
-    const f = 1 - Math.exp(-dt * 7);
+    const f = 1 - Math.exp(-dt * 7), tree = this.mode === "tree";
     let moving = 0;
     for (const b of this.order) {
-      if (!b.parent || !b.ring) { b.ax = 0; b.ay = 0; }
+      if (!b.parent) { b.ax = 0; b.ay = 0; }
+      else if (tree) { b.ax = b.parent.x + b.ox; b.ay = b.parent.y + b.oy; }
+      else if (!b.ring) { b.ax = 0; b.ay = 0; }
       else {
         const R = b.ring; if (R.rd == null) R.rd = R.r;
         R.rd += (R.r - R.rd) * f; if (Math.abs(R.r - R.rd) < 1e-6 * R.r) R.rd = R.r; else moving = Math.max(moving, 1);
         const a = b.a0 + R.speed * this.t; b.ax = b.parent.x + Math.cos(a) * R.rd; b.ay = b.parent.y + Math.sin(a) * R.rd;
       }
       if (b.dragging) continue;
-      /* bodies ride exactly on their orbit; only one let go after a drag drifts back to it */
-      if (!b.free) { b.x = b.ax; b.y = b.ay; continue; }
+      /* bodies ride exactly on their orbit; only one let go after a drag drifts back to it.
+         In the tree every body eases to its place, and stops exactly on it. */
+      if (!b.free && !tree) { b.x = b.ax; b.y = b.ay; continue; }
       const dx = b.ax - b.x, dy = b.ay - b.y;
       b.x += dx * f; b.y += dy * f;
       const off = (Math.abs(dx) + Math.abs(dy)) / Math.max(0.05, b.size);
-      if (off < 0.01) b.free = false;
+      if (off < 0.01) { b.free = false; if (tree) { b.x = b.ax; b.y = b.ay; } }
       moving = Math.max(moving, off);
     }
     for (const g of this.ghosts) { g.life -= dt * 3; if (g.to) { g.x += (g.to.x - g.x) * f; g.y += (g.to.y - g.y) * f; } }
@@ -153,12 +182,25 @@ class Orbits {
       for (const g of this.src.groups(path[i])) if (g.entries.some(e => e.id === path[i + 1])) this.spread.add(path[i] + ">" + g.key);
     }
   }
-  /* how far the map reaches once every orbit has grown to its full size (the layout knows this up front) */
-  extent(){
+  /* Change between the orbit and the tree layout; what is open stays open. Going back to orbits, every body drifts
+     to its orbit from where the tree left it. */
+  setMode(mode){
+    this.mode = mode;
+    if (mode === "orbit") for (const b of this.order) b.free = true;
+    this.build();
+  }
+  /* the box the map fills once everything has come to rest (the layout knows this up front): a square round the sun
+     that holds every orbit at its full size, or the box round the tree */
+  bounds(){
+    if (this.mode === "tree") {
+      const B = { x0:-120, y0:-120, x1:120, y1:120 };
+      for (const b of this.order) { B.x0 = Math.min(B.x0, b.tx - b.size); B.x1 = Math.max(B.x1, b.tx + b.size); B.y0 = Math.min(B.y0, b.ty - b.size); B.y1 = Math.max(B.y1, b.ty + b.size); }
+      return B;
+    }
     let R = 120;
     if (this.root) R = Math.max(R, this.root.size + (this.root.sysR || 0));
     for (const b of this.order) { const v = Math.hypot(b.ax ?? b.x, b.ay ?? b.y) + b.size; if (isFinite(v)) R = Math.max(R, v); }
-    return R;
+    return { x0:-R, y0:-R, x1:R, y1:R };
   }
 }
 XO.Orbits = Orbits;
