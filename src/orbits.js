@@ -5,7 +5,8 @@
    spaced widest, and the orbits around a moon are half as far apart as those around its planet, and so on.
    Every orbit still clears each body's whole system.
    The same bodies can be laid out as a tree instead (mode "tree"): the root at the bottom, and each open body's
-   children on an arc above it, every line from parent to child rising at between 45° and 135°. */
+   children on an arc above it, each on a branch that leaves the body leaning outward and bends upward, and that
+   rises at between 45° and 135° all the way along. */
 (function(){
 "use strict";
 const XO = window.XO;
@@ -14,6 +15,9 @@ const unit = depth => Math.pow(LEVEL, Math.max(0, depth - 1));
 const MAX_UNFOLDED = 48;                 /* more children than this and the biggest groups fold */
 const BRANCH_GAP = 16;                   /* tree: the room kept on each side of a body, between it and the next branch */
 const BRANCH_RISE = 60;                  /* tree: how far above a body its children sit, at least (plus both bodies' sizes) */
+/* tree: a child sits at most 30° to either side of straight up from its parent, and its branch turns by at most 15° each
+   way from the straight line between them, so no part of a branch leans more than 45° */
+const FAN = Math.PI / 6, TURN = Math.PI / 12;
 
 class Orbits {
   constructor(src){
@@ -118,7 +122,7 @@ class Orbits {
 
   /* Branch places for one body in the tree, once its children's own branches are placed. Each child's whole subtree
      gets a column of its own, side by side, so no two branches can cross; the body sits under the middle of its
-     children, and they sit on an arc around it, wide enough that the outermost lines rise at exactly 45° and 135°. */
+     children, and they sit on an arc around it, wide enough that the outermost are 30° off straight up. */
   layoutBranches(n){
     const kids = n.rings.map(r => r.members[0]), half = n.size + BRANCH_GAP;
     n.rings = [];
@@ -127,8 +131,10 @@ class Orbits {
     for (const m of kids) { m.ox = w + m.wl; w += m.wl + m.wr; }
     const first = kids[0].ox, last = kids[kids.length - 1].ox, mid = (first + last) / 2;
     const big = kids.reduce((v, m) => Math.max(v, m.size), 0);
-    const R = Math.max(n.size + big + BRANCH_RISE, (last - first) / 2 * Math.SQRT2);
-    for (const m of kids) { m.ring = null; m.ox -= mid; m.oy = -Math.sqrt(Math.max(0, R * R - m.ox * m.ox)); }
+    const R = Math.max(n.size + big + BRANCH_RISE, (last - first) / 2 / Math.sin(FAN));
+    /* an only child sits straight above: its branch sways a little, to the left and to the right at alternate levels */
+    const sway = kids.length === 1 ? (n.depth % 2 ? 1 : -1) : 0;
+    for (const m of kids) { m.ring = null; m.sway = sway; m.ox -= mid; m.oy = -Math.sqrt(Math.max(0, R * R - m.ox * m.ox)); }
     /* how far the subtree reaches to the left and right of this body, and how far its own children reach */
     n.wl = Math.max(half, mid); n.wr = Math.max(half, w - mid);
     n.sysR = R + big;
@@ -203,5 +209,11 @@ class Orbits {
     return { x0:-R, y0:-R, x1:R, y1:R };
   }
 }
+/* How far the branch to body b bows, as a share of its length (the sign says to which side), with b dx to the right of
+   its parent and len away. The further to the side b sits, the more its branch leans out at first and bends upward
+   after, so the branches of one body fan out side by side and never cross; the middle one of an odd number is straight.
+   An only child's branch sways by half the full turn, so a chain of only children climbs like a stem. */
+Orbits.branchBend = (b, dx, len) => b.sway ? b.sway * Math.tan(TURN / 2) / 2
+  : len > 0 ? Math.tan(TURN * Math.max(-1, Math.min(1, dx / (len * Math.sin(FAN))))) / 2 : 0;
 XO.Orbits = Orbits;
 })();

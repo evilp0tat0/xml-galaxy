@@ -344,18 +344,19 @@ function draw(){
       if (strokeArc(x, y, rr, from, to, ring.grp.folded ? 7 : 0)) lastR[look] = rr;
     }
   }
-  /* edges: curved, like Sigma's curved edge program; the tree's branches are straight */
-  const spokeBend = O.mode === "tree" ? 0 : 0.1;
+  /* edges: curved, like Sigma's curved edge program. The tree's branches bend upward, more the further to the side they
+     go, and are thickest at the root, thinner at each level up. */
+  const tree = O.mode === "tree";
   for (const l of O.links) {
     const on = lit?.links.has(l.id), ax = X(l.a), ay = Y(l.a), bx = X(l.b), by = Y(l.b);
-    const dx = bx - ax, dy = by - ay, bend = l.kind === "spoke" ? spokeBend : 0.26, cx = (ax + bx) / 2 - dy * bend, cy = (ay + by) / 2 + dx * bend;
+    const dx = bx - ax, dy = by - ay, spoke = l.kind === "spoke", bend = !spoke ? 0.26 : tree ? XO.Orbits.branchBend(l.b, dx, Math.hypot(dx, dy)) : 0.1, cx = (ax + bx) / 2 - dy * bend, cy = (ay + by) / 2 + dx * bend;
     /* the curve lies inside the triangle of its ends and its control point, so that decides whether it can show:
        by its ends alone, a curve whose bulge crosses the edge of the screen would pop in and out */
     if (Math.max(ax, bx, cx) < -40 || Math.max(ay, by, cy) < -40 || Math.min(ax, bx, cx) > W + 40 || Math.min(ay, by, cy) > H + 40) continue;
     if (Math.hypot(dx, dy) < 1) continue;
-    ctx.globalAlpha = lit ? (on ? 0.95 : 0.04) : (l.kind === "spoke" ? 0.32 : 0.45);
-    pen(colour(l.color), on ? 2.4 : l.kind === "spoke" ? 0.9 : 1.1, l.kind === "spoke" ? NO_DASH : DASH_REF);
-    strokeCurve(ax, ay, cx, cy, bx, by, l.kind === "spoke" ? 0 : 10);
+    ctx.globalAlpha = lit ? (on ? 0.95 : 0.04) : (spoke ? 0.32 : 0.45);
+    pen(colour(l.color), on ? 2.4 : !spoke ? 1.1 : tree ? 0.9 + 1.5 * Math.pow(0.55, l.a.depth) : 0.9, spoke ? NO_DASH : DASH_REF);
+    strokeCurve(ax, ay, cx, cy, bx, by, spoke ? 0 : 10);
   }
   ctx.setLineDash(NO_DASH);
   /* bodies that are folding away */
@@ -924,7 +925,7 @@ function renderLegend(){
   if (tags.length > 16) out.push(`<div class="k" style="color:var(--faint)">… and ${tags.length - 16} more tags</div>`);
   out.push(`<div class="k"><i style="background:repeating-linear-gradient(90deg,${colour("ref")} 0 5px,transparent 5px 9px)"></i>id reference (ref, href, idref…)</div>`);
   out.push(tree
-    ? `<p>The root element is at the bottom. Click a circle to centre it; click it again to show all its child elements above it, each on a line going up; once more to fold them. A dashed circle with a number is a folded group: click it to spread it out. The buttons at the bottom right show every element at once, or fold them all back into one circle. Drag a body to pull it about; it drifts back to its place. Hover to light up the chain back to the root.</p>`
+    ? `<p>The root element is at the bottom. Click a circle to centre it; click it again to show all its child elements above it, each on a branch that curves upward; once more to fold them. A dashed circle with a number is a folded group: click it to spread it out. The buttons at the bottom right show every element at once, or fold them all back into one circle. Drag a body to pull it about; it drifts back to its place. Hover to light up the chain back to the root.</p>`
     : `<p>Click a circle to centre it; click it again to show all its child elements; once more to fold them. A dashed circle with a number is a folded group: click it to spread it out. The buttons at the bottom right show every orbit at once, or fold them all back into one circle. Drag a body to pull it about; it drifts back to its orbit. Hover to light up the chain back to the centre.</p>`);
   $("legendBody").innerHTML = out.join("");
 }
