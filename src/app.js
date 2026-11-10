@@ -358,6 +358,8 @@ function draw(){
       ctx.globalAlpha = lit ? (on ? 0.95 : 0.04) : 0.32;
       const d = l.a.depth;
       pen(colour(l.color), on ? 2.4 : girth(d), NO_DASH);
+      /* a branch too short on screen to show its shape is drawn as one curve through the point where its two would join */
+      if (Math.hypot(dx, dy) < 24) { strokeCurve(ax, ay, xm, ym, bx, by, 0); continue; }
       strokeCurve(ax, ay, x1, y1, xm, ym, 0);
       pen(colour(l.color), on ? 2.4 : (girth(d) + girth(d + 1)) / 2, NO_DASH);
       strokeCurve(xm, ym, x2, y2, bx, by, 0);

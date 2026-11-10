@@ -143,27 +143,30 @@ class Orbits {
     const R = Math.max(n.size + big + BRANCH_RISE, (last - first) / 2 / Math.sin(FAN));
     for (const m of kids) { m.ring = null; m.ox -= mid; m.oy = -Math.sqrt(Math.max(0, R * R - m.ox * m.ox)); }
     /* Outward from the middle on each side. A child can rise only so far that the straight line to it still passes
-       under its inner neighbour's body with room to spare; its branch bows below that line, and each line is less
-       steep than the one inside it, so it clears every body nearer the middle too. */
-    const rise = side => {
+       under its inner neighbour's body, with room to spare, all the way to the outer edge of that neighbour's column
+       (reach: how far the column goes on that side): the neighbour's whole subtree is above its body. The branch bows
+       below that line, and each line is less steep than the one inside it, so it clears every column nearer the
+       middle too. */
+    const rise = (side, reach) => {
       let inner = null;
       for (const m of side) {
         if (m.ox) {
-          const most = inner ? (-inner.oy - inner.size - BRANCH_GAP) * m.ox / inner.ox : Infinity;
+          const most = inner ? (-inner.oy - inner.size - BRANCH_GAP) * Math.abs(m.ox) / (Math.abs(inner.ox) + reach(inner)) : Infinity;
           m.oy = -Math.max(-m.oy, Math.min(-m.oy * (1 + STRETCH * chance(m.id + "|rise")), most));
           inner = m;
         } else m.oy *= 1 + STRETCH * chance(m.id + "|rise");
       }
     };
-    rise(kids.filter(m => m.ox >= 0)); rise(kids.filter(m => m.ox < 0).reverse());
+    rise(kids.filter(m => m.ox >= 0), m => m.wr); rise(kids.filter(m => m.ox < 0).reverse(), m => m.wl);
     this.shapeBranches(n, kids);
     /* how far the subtree reaches to the left and right of this body, and how far its own children reach */
     n.wl = Math.max(half, mid); n.wr = Math.max(half, w - mid);
     n.sysR = kids.reduce((v, m) => Math.max(v, Math.hypot(m.ox, m.oy)), 0) + big;
   }
   /* The shape of the branch to each child of n: m.branch, read by Orbits.branchCurve. A branch leaves its parent leaning
-     further out than the straight line to the child (half as far again off straight up, give or take a little), then
-     turns upward and comes to the child steeper than that line. How long each of the two bends is, how much steeper the
+     further out than the straight line to the child (half as far again off straight up, give or take a little, but
+     always further out), then turns upward and comes to the child steeper than that line. The branch to a child
+     straight above leans a little to one side and comes back. How long each of the two bends is, how much steeper the
      end is and the give or take are the branch's own, within limits that narrow as the children crowd together. First leans stay in the children's order, left to right, so the
      branches of one body do not cross; an only child's branch sways to the left and to the right at alternate levels. */
   shapeBranches(n, kids){
@@ -174,7 +177,7 @@ class Orbits {
          so that branches packed tightly together run side by side */
       const own = Math.min(1, 0.7 * gap / WANDER), vary = key => own * (2 * chance(m.id + key) - 1);
       const stray = kids.length === 1 ? (n.depth % 2 ? 1 : -1) * (0.6 + 0.4 * chance(m.id + "|lean")) : vary("|lean");
-      const start = Math.max(-LEAN, Math.min(LEAN, 1.5 * off[i] + stray * WANDER));
+      const start = Math.max(-LEAN, Math.min(LEAN, 1.5 * off[i] + stray * (off[i] ? Math.min(WANDER, 0.45 * Math.abs(off[i])) : WANDER)));
       const lean = start - off[i], a = 0.32 + 0.06 * vary("|a"), b = 0.31 + 0.05 * vary("|b");
       /* the end turns the same way as the start leans, and never so much that the middle of the branch would tip outward */
       const most = Math.asin(Math.min(1, a * Math.sin(Math.abs(lean)) / b));
