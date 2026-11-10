@@ -5,8 +5,8 @@
    spaced widest, and the orbits around a moon are half as far apart as those around its planet, and so on.
    Every orbit still clears each body's whole system.
    The same bodies can be laid out as a tree instead (mode "tree"): the root at the bottom, and each open body's
-   children on an arc above it, each on a branch that leaves the body leaning outward and bends upward, and that
-   rises at between 45° and 135° all the way along. */
+   children above it, each on a branch of its own shape and length that leaves the body leaning outward and bends
+   upward, and that rises at between 45° and 135° all the way along. */
 (function(){
 "use strict";
 const XO = window.XO;
@@ -15,9 +15,17 @@ const unit = depth => Math.pow(LEVEL, Math.max(0, depth - 1));
 const MAX_UNFOLDED = 48;                 /* more children than this and the biggest groups fold */
 const BRANCH_GAP = 16;                   /* tree: the room kept on each side of a body, between it and the next branch */
 const BRANCH_RISE = 60;                  /* tree: how far above a body its children sit, at least (plus both bodies' sizes) */
-/* tree: a child sits at most 30° to either side of straight up from its parent, and its branch turns by at most 15° each
-   way from the straight line between them, so no part of a branch leans more than 45° */
-const FAN = Math.PI / 6, TURN = Math.PI / 12;
+/* tree: a child sits at most 30° to either side of straight up from its parent, and no part of its branch leans more
+   than 45° to either side */
+const FAN = Math.PI / 6, LEAN = Math.PI / 4;
+const WANDER = Math.PI / 36;             /* tree: how far a branch's first lean strays from the regular fan, at most (5°) */
+const STRETCH = 0.25;                    /* tree: how much further than the arc a child can sit, as a share of its rise */
+/* a number from 0 up to 1 that is always the same for the same text: what makes one branch differ from the next */
+function chance(text){
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+  return (h >>> 0) / 4294967296;
+}
 
 class Orbits {
   constructor(src){
@@ -122,7 +130,8 @@ class Orbits {
 
   /* Branch places for one body in the tree, once its children's own branches are placed. Each child's whole subtree
      gets a column of its own, side by side, so no two branches can cross; the body sits under the middle of its
-     children, and they sit on an arc around it, wide enough that the outermost are 30° off straight up. */
+     children. They start on an arc around it, wide enough that the outermost are 30° off straight up; then each is
+     moved straight up by an amount of its own, so the branches are of uneven length, as grown ones are. */
   layoutBranches(n){
     const kids = n.rings.map(r => r.members[0]), half = n.size + BRANCH_GAP;
     n.rings = [];
@@ -132,12 +141,46 @@ class Orbits {
     const first = kids[0].ox, last = kids[kids.length - 1].ox, mid = (first + last) / 2;
     const big = kids.reduce((v, m) => Math.max(v, m.size), 0);
     const R = Math.max(n.size + big + BRANCH_RISE, (last - first) / 2 / Math.sin(FAN));
-    /* an only child sits straight above: its branch sways a little, to the left and to the right at alternate levels */
-    const sway = kids.length === 1 ? (n.depth % 2 ? 1 : -1) : 0;
-    for (const m of kids) { m.ring = null; m.sway = sway; m.ox -= mid; m.oy = -Math.sqrt(Math.max(0, R * R - m.ox * m.ox)); }
+    for (const m of kids) { m.ring = null; m.ox -= mid; m.oy = -Math.sqrt(Math.max(0, R * R - m.ox * m.ox)); }
+    /* Outward from the middle on each side. A child can rise only so far that the straight line to it still passes
+       under its inner neighbour's body with room to spare; its branch bows below that line, and each line is less
+       steep than the one inside it, so it clears every body nearer the middle too. */
+    const rise = side => {
+      let inner = null;
+      for (const m of side) {
+        if (m.ox) {
+          const most = inner ? (-inner.oy - inner.size - BRANCH_GAP) * m.ox / inner.ox : Infinity;
+          m.oy = -Math.max(-m.oy, Math.min(-m.oy * (1 + STRETCH * chance(m.id + "|rise")), most));
+          inner = m;
+        } else m.oy *= 1 + STRETCH * chance(m.id + "|rise");
+      }
+    };
+    rise(kids.filter(m => m.ox >= 0)); rise(kids.filter(m => m.ox < 0).reverse());
+    this.shapeBranches(n, kids);
     /* how far the subtree reaches to the left and right of this body, and how far its own children reach */
     n.wl = Math.max(half, mid); n.wr = Math.max(half, w - mid);
-    n.sysR = R + big;
+    n.sysR = kids.reduce((v, m) => Math.max(v, Math.hypot(m.ox, m.oy)), 0) + big;
+  }
+  /* The shape of the branch to each child of n: m.branch, read by Orbits.branchCurve. A branch leaves its parent leaning
+     further out than the straight line to the child (half as far again off straight up, give or take a little), then
+     turns upward and comes to the child steeper than that line. How long each of the two bends is, how much steeper the
+     end is and the give or take are the branch's own, within limits that narrow as the children crowd together. First leans stay in the children's order, left to right, so the
+     branches of one body do not cross; an only child's branch sways to the left and to the right at alternate levels. */
+  shapeBranches(n, kids){
+    const off = kids.map(m => Math.atan2(m.ox, -m.oy));     /* how far off straight up each child is; to the right is positive */
+    kids.forEach((m, i) => {
+      const gap = Math.min(i ? off[i] - off[i - 1] : Infinity, i < kids.length - 1 ? off[i + 1] - off[i] : Infinity);
+      /* how much of its own a branch may have: all of it with room around it, less the closer its neighbours are,
+         so that branches packed tightly together run side by side */
+      const own = Math.min(1, 0.7 * gap / WANDER), vary = key => own * (2 * chance(m.id + key) - 1);
+      const stray = kids.length === 1 ? (n.depth % 2 ? 1 : -1) * (0.6 + 0.4 * chance(m.id + "|lean")) : vary("|lean");
+      const start = Math.max(-LEAN, Math.min(LEAN, 1.5 * off[i] + stray * WANDER));
+      const lean = start - off[i], a = 0.32 + 0.06 * vary("|a"), b = 0.31 + 0.05 * vary("|b");
+      /* the end turns the same way as the start leans, and never so much that the middle of the branch would tip outward */
+      const most = Math.asin(Math.min(1, a * Math.sin(Math.abs(lean)) / b));
+      const turn = Math.sign(lean) * Math.min(Math.abs(off[i]) * (0.45 + 0.15 * vary("|turn")) + Math.abs(lean) * 0.4, most);
+      m.branch = { lean, turn, a, b };
+    });
   }
 
   /* One physics step. Parents come first in `order`, so moons aim at where their planet actually is. */
@@ -209,11 +252,16 @@ class Orbits {
     return { x0:-R, y0:-R, x1:R, y1:R };
   }
 }
-/* How far the branch to body b bows, as a share of its length (the sign says to which side), with b dx to the right of
-   its parent and len away. The further to the side b sits, the more its branch leans out at first and bends upward
-   after, so the branches of one body fan out side by side and never cross; the middle one of an odd number is straight.
-   An only child's branch sways by half the full turn, so a chain of only children climbs like a stem. */
-Orbits.branchBend = (b, dx, len) => b.sway ? b.sway * Math.tan(TURN / 2) / 2
-  : len > 0 ? Math.tan(TURN * Math.max(-1, Math.min(1, dx / (len * Math.sin(FAN))))) / 2 : 0;
+/* The branch from a parent at ax, ay to its child, body b, at bx, by (y grows downward): two curves joined smoothly end to
+   end. Returns their control points and the point where they join, [x1, y1, xm, ym, x2, y2], in an array that is used
+   again on the next call. The shape turns with the line between the two, so it holds while bodies move. */
+const curve = [0, 0, 0, 0, 0, 0];
+Orbits.branchCurve = (b, ax, ay, bx, by) => {
+  const s = b.branch, dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy), up = Math.atan2(dx, -dy), a1 = up + s.lean, a2 = up - s.turn;
+  curve[0] = ax + s.a * len * Math.sin(a1); curve[1] = ay - s.a * len * Math.cos(a1);
+  curve[4] = bx - s.b * len * Math.sin(a2); curve[5] = by + s.b * len * Math.cos(a2);
+  curve[2] = (curve[0] + curve[4]) / 2; curve[3] = (curve[1] + curve[5]) / 2;
+  return curve;
+};
 XO.Orbits = Orbits;
 })();
