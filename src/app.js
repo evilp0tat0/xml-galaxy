@@ -344,18 +344,34 @@ function draw(){
       if (strokeArc(x, y, rr, from, to, ring.grp.folded ? 7 : 0)) lastR[look] = rr;
     }
   }
-  /* edges: curved, like Sigma's curved edge program. The tree's branches bend upward, more the further to the side they
-     go, and are thickest at the root, thinner at each level up. */
-  const tree = O.mode === "tree";
+  /* edges: curved, like Sigma's curved edge program. A branch of the tree is two curves end to end, in the shape the
+     layout gave it; it is thickest at the root and thinner at each level up, and its upper half is thinner than its lower. */
+  const tree = O.mode === "tree", girth = d => 0.9 + 1.5 * Math.pow(0.55, d);
   for (const l of O.links) {
     const on = lit?.links.has(l.id), ax = X(l.a), ay = Y(l.a), bx = X(l.b), by = Y(l.b);
-    const dx = bx - ax, dy = by - ay, spoke = l.kind === "spoke", bend = !spoke ? 0.26 : tree ? XO.Orbits.branchBend(l.b, dx, Math.hypot(dx, dy)) : 0.1, cx = (ax + bx) / 2 - dy * bend, cy = (ay + by) / 2 + dx * bend;
+    const dx = bx - ax, dy = by - ay, spoke = l.kind === "spoke";
+    if (spoke && tree) {
+      const [x1, y1, xm, ym, x2, y2] = XO.Orbits.branchCurve(l.b, ax, ay, bx, by);
+      /* the branch lies inside the shape of its ends and its control points, so that decides whether it can show */
+      if (Math.max(ax, bx, x1, x2) < -40 || Math.max(ay, by, y1, y2) < -40 || Math.min(ax, bx, x1, x2) > W + 40 || Math.min(ay, by, y1, y2) > H + 40) continue;
+      if (Math.hypot(dx, dy) < 1) continue;
+      ctx.globalAlpha = lit ? (on ? 0.95 : 0.04) : 0.32;
+      const d = l.a.depth;
+      pen(colour(l.color), on ? 2.4 : girth(d), NO_DASH);
+      /* a branch too short on screen to show its shape is drawn as one curve through the point where its two would join */
+      if (Math.hypot(dx, dy) < 24) { strokeCurve(ax, ay, xm, ym, bx, by, 0); continue; }
+      strokeCurve(ax, ay, x1, y1, xm, ym, 0);
+      pen(colour(l.color), on ? 2.4 : (girth(d) + girth(d + 1)) / 2, NO_DASH);
+      strokeCurve(xm, ym, x2, y2, bx, by, 0);
+      continue;
+    }
+    const bend = spoke ? 0.1 : 0.26, cx = (ax + bx) / 2 - dy * bend, cy = (ay + by) / 2 + dx * bend;
     /* the curve lies inside the triangle of its ends and its control point, so that decides whether it can show:
        by its ends alone, a curve whose bulge crosses the edge of the screen would pop in and out */
     if (Math.max(ax, bx, cx) < -40 || Math.max(ay, by, cy) < -40 || Math.min(ax, bx, cx) > W + 40 || Math.min(ay, by, cy) > H + 40) continue;
     if (Math.hypot(dx, dy) < 1) continue;
     ctx.globalAlpha = lit ? (on ? 0.95 : 0.04) : (spoke ? 0.32 : 0.45);
-    pen(colour(l.color), on ? 2.4 : !spoke ? 1.1 : tree ? 0.9 + 1.5 * Math.pow(0.55, l.a.depth) : 0.9, spoke ? NO_DASH : DASH_REF);
+    pen(colour(l.color), on ? 2.4 : spoke ? 0.9 : 1.1, spoke ? NO_DASH : DASH_REF);
     strokeCurve(ax, ay, cx, cy, bx, by, spoke ? 0 : 10);
   }
   ctx.setLineDash(NO_DASH);
