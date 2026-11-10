@@ -6,13 +6,14 @@ choices (the look, licences, removing a feature).
 
 ## The project
 
-A static page with no build step that shows any XML file as a solar system:
+A static page with no build step that shows any XML file as a solar system (Orbit view) or
+as a tree growing upward (Tree view):
 
 - `index.html`: layout, styles and controls, the welcome panel and the Display names text
 - `src/explain.js`: plain-words helpers, the built-in glossary, and dictionaries (the terms an XML
   document defines)
 - `src/sources.js`: XML to bodies and orbits, and the explanation of each element
-- `src/orbits.js`: layout and physics
+- `src/orbits.js`: layout (orbits, or the tree's branches) and physics
 - `src/app.js`: drawing and interaction, tooltips, colour key, dictionary loading and messages
 
 `.github/workflows/pages.yml` publishes `main` to https://evilp0tat0.github.io/xml-orbitree/
@@ -24,7 +25,10 @@ Owner decisions; keep them:
   name and, beside it, the open file's own name: its root's `<…:name>` child, else the file
   name. The browser tab shows both. The project had other names before; they were removed
   from the whole history, so never write them anywhere, not even as history.
-- Only the plain XML tree view. The S-100 "By meaning" view is gone for good.
+- Only the plain XML tree is shown. The S-100 "By meaning" view is gone for good.
+- Two views of that tree, switched in the top bar. The Orbit view: children circle their
+  parent. The Tree view: the root at the bottom, and each open element's children above
+  it, every line from parent to child going up at between 45° and 135°.
 - The S-201 example files stay. The OpenS100 one is third-party (MPL-2.0): don't edit its
   content, and keep its notice comment and the README's licence note. Rules 3 and 4 don't
   apply to it.
@@ -72,7 +76,8 @@ Owner decisions; keep them:
      pull request and in your last message (rule 1). Keep check scripts and screenshots
      outside the repo.
    - **Basic check.** Both samples load, orbits open, search works, and the console shows
-     no errors.
+     no errors; the same in the Tree view, where every line from parent to child must rise
+     at between 45° and 135°.
    - **Cleanups and refactors change nothing.** Run the same steps before and after in a
      Playwright context with `reducedMotion: "reduce"`, so the orbits stand still. Let the
      layout settle. Then compare the bodies (`window.XO.app.O.order`: id, label, size,

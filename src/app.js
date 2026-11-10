@@ -10,7 +10,11 @@ const SAMPLE = "samples/S-201_FC_OpenS100_draft.xml";
 const canvas = $("sky"), ctx = canvas.getContext("2d");
 /* examples that open with a bundled dictionary: the dataset is explained by the catalogue */
 const SAMPLE_DICTS = { "samples/S-201_dataset_example.xml":SAMPLE };
-const A = { doc:null, src:null, O:null, playing:!REDUCED, dicts:[],
+/* the two views of the same elements, and the one chosen last in this browser */
+const VIEWS = { orbit:"Orbit view", tree:"Tree view" }, VIEW_KEY = "xml-viewer.view";
+let savedView = null;
+try { savedView = localStorage.getItem(VIEW_KEY); } catch {}
+const A = { doc:null, src:null, O:null, view:savedView === "tree" ? "tree" : "orbit", playing:!REDUCED, dicts:[],
   cam:{ x:0, y:0, k:1 }, camTo:null, follow:null, followK:null, hover:null, sel:null, ptr:null, pinch:null, userLoaded:false };
 
 /* ---------------- colours ---------------- */
@@ -54,7 +58,7 @@ function kick(){ dirty = true; if (!raf) raf = requestAnimationFrame(frame); }
 function frame(now){
   raf = 0;
   const dt = last ? Math.min(0.05, (now - last) / 1000) : 0; last = now;
-  const spin = A.playing && !!A.O && !A.hover && !A.ptr?.dragging;   /* nothing turns before a file is loaded */
+  const spin = A.playing && A.O?.mode === "orbit" && !A.hover && !A.ptr?.dragging;   /* nothing turns before a file is loaded, or in the tree */
   const moving = A.O ? A.O.step(dt, spin) : false;
   const camMoving = cameraStep();
   /* a pulse whose body has folded away shows nothing, and need not keep the loop running */
@@ -116,7 +120,7 @@ function cameraStep(){
 const MAX_ZOOM = 1e5;
 /* the zoom at which the whole map fits the free part of the screen */
 function fitZoom(fa){
-  const R = A.O.extent() + 120, k = Math.min(1.6, Math.min(fa.x1 - fa.x0, fa.y1 - fa.y0) / (2 * R));
+  const B = A.O.bounds(), k = Math.min(1.6, (fa.x1 - fa.x0) / (B.x1 - B.x0 + 240), (fa.y1 - fa.y0) / (B.y1 - B.y0 + 240));
   return isFinite(k) && k > 0 ? k : 0.05;
 }
 /* how far out it can zoom: to 0.01%, or further when a big file shown in full needs it to fit */
@@ -124,8 +128,8 @@ const minZoom = () => Math.min(1e-4, fitZoom(freeArea()));
 function fit(animate = true){
   if (!A.O) return;
   A.follow = null; A.followK = null;
-  const fa = freeArea(), k = fitZoom(fa);
-  const t = { x:(fa.x0 + fa.x1) / 2, y:(fa.y0 + fa.y1) / 2, k };
+  const fa = freeArea(), k = fitZoom(fa), B = A.O.bounds();
+  const t = { x:(fa.x0 + fa.x1) / 2 - k * (B.x0 + B.x1) / 2, y:(fa.y0 + fa.y1) / 2 - k * (B.y0 + B.y1) / 2, k };
   if (animate && !REDUCED) A.camTo = t; else { Object.assign(A.cam, t); A.camTo = null; }
   kick();
 }
@@ -340,10 +344,11 @@ function draw(){
       if (strokeArc(x, y, rr, from, to, ring.grp.folded ? 7 : 0)) lastR[look] = rr;
     }
   }
-  /* edges: curved, like Sigma's curved edge program */
+  /* edges: curved, like Sigma's curved edge program; the tree's branches are straight */
+  const spokeBend = O.mode === "tree" ? 0 : 0.1;
   for (const l of O.links) {
     const on = lit?.links.has(l.id), ax = X(l.a), ay = Y(l.a), bx = X(l.b), by = Y(l.b);
-    const dx = bx - ax, dy = by - ay, bend = l.kind === "spoke" ? 0.1 : 0.26, cx = (ax + bx) / 2 - dy * bend, cy = (ay + by) / 2 + dx * bend;
+    const dx = bx - ax, dy = by - ay, bend = l.kind === "spoke" ? spokeBend : 0.26, cx = (ax + bx) / 2 - dy * bend, cy = (ay + by) / 2 + dx * bend;
     /* the curve lies inside the triangle of its ends and its control point, so that decides whether it can show:
        by its ends alone, a curve whose bulge crosses the edge of the screen would pop in and out */
     if (Math.max(ax, bx, cx) < -40 || Math.max(ay, by, cy) < -40 || Math.min(ax, bx, cx) > W + 40 || Math.min(ay, by, cy) > H + 40) continue;
@@ -394,7 +399,7 @@ function draw(){
   drawLabels(lit);
   /* the counts change only with a rebuild (a new order); writing text to the page, even the same text,
      makes the browser restyle and lay it out again */
-  if (counted !== O.order) { counted = O.order; countText = A.src ? `${O.order.filter(b => b.type !== "group").length} of ${A.src.total.toLocaleString()} elements shown · ${O.order.reduce((s, b) => s + b.rings.length, 0)} orbits` : ""; }
+  if (counted !== O.order) { counted = O.order; countText = A.src ? `${O.order.filter(b => b.type !== "group").length} of ${A.src.total.toLocaleString()} elements shown` + (O.mode === "orbit" ? ` · ${O.order.reduce((s, b) => s + b.rings.length, 0)} orbits` : "") : ""; }
   setText("status", countText);
   setText("zoomPct", A.src ? `zoom ${zoomPct(c.k)}%` : "");
 }
@@ -593,7 +598,7 @@ canvas.addEventListener("keydown", e => {
   const key = e.key.toLowerCase();                   /* letters work with Caps Lock or Shift too */
   if (e.key === "Escape") select(null);
   else if (key === "f") fit(true);
-  else if (e.key === " ") { e.preventDefault(); setPlay(!A.playing); }
+  else if (e.key === " ") { e.preventDefault(); if (A.view === "orbit") setPlay(!A.playing); }
   else if (e.key === "+" || e.key === "=") zoomAt(W / 2, H / 2, 1.25);
   else if (e.key === "-") zoomAt(W / 2, H / 2, 0.8);
   else if (e.key === "Enter" && A.sel) { const b = A.O.bodies.get(A.sel); if (b) clickBody(b); }
@@ -740,7 +745,7 @@ function renderSide(b){
   if (info?.facts?.length) parts.push(`<div class="tags">${info.facts.map(f => `<span class="tag">${esc(f)}</span>`).join("")}</div>`);
   /* under an attribute's value, what the glossary or a dictionary says its name means */
   if (info?.attrs?.length) parts.push(`<div><h3>Attributes</h3><dl class="attrs">${info.attrs.slice(0, 40).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(clip(v, 200))}${ex.attrs.has(k) ? `<div class="s">${esc(ex.attrs.get(k))}</div>` : ""}</dd>`).join("")}</dl></div>`);
-  if (info?.orbits?.length) parts.push(`<div><h3>Its orbits</h3><div class="tags">${info.orbits.map(o => `<span class="tag" style="border-color:${colour(o.color)};color:${colour(o.color)}">${esc(o.title)} ${o.count}</span>`).join("")}</div></div>`);
+  if (info?.orbits?.length) parts.push(`<div><h3>${A.view === "tree" ? "Its branches" : "Its orbits"}</h3><div class="tags">${info.orbits.map(o => `<span class="tag" style="border-color:${colour(o.color)};color:${colour(o.color)}">${esc(o.title)} ${o.count}</span>`).join("")}</div></div>`);
   const linkRow = (id, text, c) => `<div class="it"><span class="dot" style="background:${colour(c)}"></span><button type="button" class="chip" data-find="${esc(id)}">${esc(clip(text, 48))}</button></div>`;
   if (info?.linksOut?.length) parts.push(`<div><h3>Points to</h3><div class="list">${info.linksOut.slice(0, 30).map(o => linkRow(o.id, o.text, o.color)).join("")}</div></div>`);
   if (info?.defined?.length) parts.push(`<div><h3>Defined in a dictionary</h3><div class="list">${info.defined.slice(0, 20).map(t => `<div class="it">${esc(t)}</div>`).join("")}</div></div>`);
@@ -820,13 +825,12 @@ function decode(buf){
   try { return new TextDecoder(m ? m[1] : "windows-1252").decode(buf); } catch { return new TextDecoder("utf-8").decode(buf); }
 }
 function setSource(src){
-  A.src = src; A.O = new XO.Orbits(src); A.sel = null; A.hover = null; A.follow = null; A.followK = null;
+  A.src = src; A.O = new XO.Orbits(src); A.O.mode = A.view; A.sel = null; A.hover = null; A.follow = null; A.followK = null;
   $("side").hidden = true; hideTip();
   /* a file starts as one circle, the root element named after the file; click it to centre it, click again to see its children */
   A.O.build();
   for (let i = 0; i < 90; i++) A.O.step(1 / 30, false);
   renderLegend(); renderNames();
-  $("ready").textContent = "XML tree";
   requestAnimationFrame(() => fit(false));
 }
 function parseXml(text){
@@ -913,12 +917,15 @@ function refreshViews(){
 /* ---------------- legend ---------------- */
 function renderLegend(){
   const src = A.src, out = [];
-  out.push(`<h4>Orbit, line and body colour: the element's tag</h4>`);
+  const tree = A.view === "tree";
+  out.push(`<h4>${tree ? "Line and body colour" : "Orbit, line and body colour"}: the element's tag</h4>`);
   const tags = [...src.palette].filter(([k]) => k.startsWith("t:"));
   for (const [, v] of tags.slice(0, 16)) out.push(`<div class="k"><b style="background:${v.color};color:${v.color}"></b>${esc(v.title)}<em>${v.count}</em></div>`);
   if (tags.length > 16) out.push(`<div class="k" style="color:var(--faint)">… and ${tags.length - 16} more tags</div>`);
   out.push(`<div class="k"><i style="background:repeating-linear-gradient(90deg,${colour("ref")} 0 5px,transparent 5px 9px)"></i>id reference (ref, href, idref…)</div>`);
-  out.push(`<p>Click a circle to centre it; click it again to show all its child elements; once more to fold them. A dashed circle with a number is a folded group: click it to spread it out. The buttons at the bottom right show every orbit at once, or fold them all back into one circle. Drag a body to pull it about; it drifts back to its orbit. Hover to light up the chain back to the centre.</p>`);
+  out.push(tree
+    ? `<p>The root element is at the bottom. Click a circle to centre it; click it again to show all its child elements above it, each on a line going up; once more to fold them. A dashed circle with a number is a folded group: click it to spread it out. The buttons at the bottom right show every element at once, or fold them all back into one circle. Drag a body to pull it about; it drifts back to its place. Hover to light up the chain back to the root.</p>`
+    : `<p>Click a circle to centre it; click it again to show all its child elements; once more to fold them. A dashed circle with a number is a folded group: click it to spread it out. The buttons at the bottom right show every orbit at once, or fold them all back into one circle. Drag a body to pull it about; it drifts back to its orbit. Hover to light up the chain back to the centre.</p>`);
   $("legendBody").innerHTML = out.join("");
 }
 
@@ -1002,7 +1009,7 @@ function selectedTag(){
 function renameForm(tag, inputId){
   const N = XO.names, n = A.src.palette.get("t:" + tag)?.count || 1, cur = N.custom.get(tag) || "", shown = N.show(tag);
   const isRoot = A.doc && tag === A.doc.documentElement.nodeName;
-  const help = `Shown for every element with this tag${n > 1 ? " (" + n.toLocaleString() + " in this file)" : ""}. Leave empty to go back to the name with hidden parts taken out.${isRoot ? " The centre circle keeps the file's own name." : ""}`;
+  const help = `Shown for every element with this tag${n > 1 ? " (" + n.toLocaleString() + " in this file)" : ""}. Leave empty to go back to the name with hidden parts taken out.${isRoot ? " The root's circle keeps the file's own name." : ""}`;
   return `<div class="lbl" title="${esc(shown !== tag ? "In the file: <" + tag + ">" : "")}">Rename <b>&lt;${esc(shown)}&gt;</b>${n > 1 ? ` · ${n.toLocaleString()}×` : ""}</div>
     <div class="row"><input id="${inputId}" data-tag="${esc(tag)}" type="text" value="${esc(cur)}" placeholder="${esc(N.strip(tag))}" title="${esc(help)}" aria-label="New display name for ${esc(shown)}" autocomplete="off"><button class="btn primary" type="button" data-nact="save">Save</button>${cur ? `<button class="btn" type="button" data-nact="reset" title="Back to the name with hidden parts taken out">Reset</button>` : ""}</div>
     <p class="ninfo">${shown !== tag ? `In the file: &lt;${esc(tag)}&gt;. ` : ""}${esc(help)}</p>`;
@@ -1053,6 +1060,23 @@ document.addEventListener("keydown", e => {
   if ((e.key === "k" && (e.metaKey || e.ctrlKey)) || (e.key === "/" && !e.target.closest?.("input,textarea,select"))) { e.preventDefault(); $("q").focus(); $("q").select(); }
 });
 $("play").addEventListener("click", () => setPlay(!A.playing));
+/* Show the file as orbits or as a tree. What is open and what is selected stay; the choice is kept in this browser.
+   Nothing turns in the tree, so it has no pause button. */
+function setView(view){
+  A.view = view;
+  try { localStorage.setItem(VIEW_KEY, view); } catch {}
+  for (const b of $("views").querySelectorAll("button")) { const on = b.dataset.view === view; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); }
+  $("play").hidden = view === "tree";
+  $("ready").textContent = VIEWS[view];
+  const all = view === "tree" ? "Show all branches" : "Show all orbits", fold = view === "tree" ? "Fold all branches" : "Fold all orbits";
+  $("showAll").title = all + " (a)"; $("showAll").setAttribute("aria-label", all);
+  $("foldAll").title = fold + " (c)"; $("foldAll").setAttribute("aria-label", fold);
+  if (!A.O) return;
+  A.O.setMode(view);
+  renderLegend(); refreshViews();
+  fit(true);
+}
+$("views").addEventListener("click", e => { const b = e.target.closest("button[data-view]"); if (b && b.dataset.view !== A.view) setView(b.dataset.view); canvas.focus({ preventScroll:true }); });
 $("fit").addEventListener("click", () => fit(true));
 $("showAll").addEventListener("click", showAll);
 $("foldAll").addEventListener("click", foldAll);
@@ -1082,6 +1106,7 @@ canvas.addEventListener("contextrestored", kick);
 new ResizeObserver(() => document.documentElement.style.setProperty("--top", $("top").getBoundingClientRect().bottom + "px")).observe($("top"));
 if (innerWidth < 1100) $("legend").open = false;
 renderNames();
+setView(A.view);
 resize();
 loadSample();
 window.XO.app = A; A.loadText = loadText; A.reveal = reveal; A.clickBody = clickBody;
