@@ -132,7 +132,9 @@ class Orbits {
     const first = kids[0].ox, last = kids[kids.length - 1].ox, mid = (first + last) / 2;
     const big = kids.reduce((v, m) => Math.max(v, m.size), 0);
     const R = Math.max(n.size + big + BRANCH_RISE, (last - first) / 2 / Math.sin(FAN));
-    for (const m of kids) { m.ring = null; m.ox -= mid; m.oy = -Math.sqrt(Math.max(0, R * R - m.ox * m.ox)); }
+    /* an only child sits straight above: its branch sways a little, to the left and to the right at alternate levels */
+    const sway = kids.length === 1 ? (n.depth % 2 ? 1 : -1) : 0;
+    for (const m of kids) { m.ring = null; m.sway = sway; m.ox -= mid; m.oy = -Math.sqrt(Math.max(0, R * R - m.ox * m.ox)); }
     /* how far the subtree reaches to the left and right of this body, and how far its own children reach */
     n.wl = Math.max(half, mid); n.wr = Math.max(half, w - mid);
     n.sysR = R + big;
@@ -207,9 +209,11 @@ class Orbits {
     return { x0:-R, y0:-R, x1:R, y1:R };
   }
 }
-/* How far a branch of the tree bows, as a share of its length (the sign says to which side), for a child dx to the right
-   of its parent and len away. A child straight above has a straight branch; the further to the side it sits, the more its
-   branch leans out at first and bends upward after, so the branches of one body fan out side by side and never cross. */
-Orbits.branchBend = (dx, len) => len > 0 ? Math.tan(TURN * Math.max(-1, Math.min(1, dx / (len * Math.sin(FAN))))) / 2 : 0;
+/* How far the branch to body b bows, as a share of its length (the sign says to which side), with b dx to the right of
+   its parent and len away. The further to the side b sits, the more its branch leans out at first and bends upward
+   after, so the branches of one body fan out side by side and never cross; the middle one of an odd number is straight.
+   An only child's branch sways by half the full turn, so a chain of only children climbs like a stem. */
+Orbits.branchBend = (b, dx, len) => b.sway ? b.sway * Math.tan(TURN / 2) / 2
+  : len > 0 ? Math.tan(TURN * Math.max(-1, Math.min(1, dx / (len * Math.sin(FAN))))) / 2 : 0;
 XO.Orbits = Orbits;
 })();

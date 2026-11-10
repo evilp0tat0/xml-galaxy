@@ -349,7 +349,7 @@ function draw(){
   const tree = O.mode === "tree";
   for (const l of O.links) {
     const on = lit?.links.has(l.id), ax = X(l.a), ay = Y(l.a), bx = X(l.b), by = Y(l.b);
-    const dx = bx - ax, dy = by - ay, spoke = l.kind === "spoke", bend = !spoke ? 0.26 : tree ? XO.Orbits.branchBend(dx, Math.hypot(dx, dy)) : 0.1, cx = (ax + bx) / 2 - dy * bend, cy = (ay + by) / 2 + dx * bend;
+    const dx = bx - ax, dy = by - ay, spoke = l.kind === "spoke", bend = !spoke ? 0.26 : tree ? XO.Orbits.branchBend(l.b, dx, Math.hypot(dx, dy)) : 0.1, cx = (ax + bx) / 2 - dy * bend, cy = (ay + by) / 2 + dx * bend;
     /* the curve lies inside the triangle of its ends and its control point, so that decides whether it can show:
        by its ends alone, a curve whose bulge crosses the edge of the screen would pop in and out */
     if (Math.max(ax, bx, cx) < -40 || Math.max(ay, by, cy) < -40 || Math.min(ax, bx, cx) > W + 40 || Math.min(ay, by, cy) > H + 40) continue;
