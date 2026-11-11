@@ -3,7 +3,7 @@
      node(id)      what a body is (label, colour key, size)
      groups(id)    what orbits it, one group per orbit
      refs(id)      extra links to bodies elsewhere (drawn dashed)
-     linked(id)    every element joined to that one by an id link, either way
+     linked(id)    the elements joined to that one, or to anything inside it, by an id link, either way
      info(id)      what the side panel shows
      explain(id)   what an element is, in plain words, and what defines its name
      search(q)     matching bodies
@@ -437,7 +437,29 @@ function xmlSource(doc, fileName){
         entries:ks.map(k => ({ id:id(k) })) }));
     },
     refs(x){ const r = rec(x); return (out.get(r) || []).map(o => ({ to:id(o.to), color:"ref", short:"@" + o.attr })); },
-    linked(x){ const r = rec(x); return [...new Set([...(out.get(r) || []).map(o => id(o.to)), ...(inn.get(r) || []).map(o => id(o.from))])]; },
+    /* Every id link between element x, or anything inside it, and an element outside it, either way. The far end is taken
+       up to the element it is part of: the nearest element up from it with an id of its own (a <parent xlink:href="#…"/>
+       inside <Topmark gml:id="TM.001"> stands for that Topmark), else its parent, never one that x is inside. Links to
+       what x is inside are left out. Each element once: [{ id, short }], short naming the link's attribute. */
+    linked(x){
+      const r = rec(x); if (!r) return [];
+      const inside = s => s.i >= r.i && s.i <= r.i + r.desc, above = new Set();
+      for (let a = r.parent; a; a = a.parent) above.add(a);
+      const found = new Map();
+      const add = (y, attr) => {
+        if (above.has(y)) return;
+        let z = y;
+        while (!idOf(z) && z.parent && !above.has(z.parent)) z = z.parent;
+        if (!idOf(z)) z = y.parent && !above.has(y.parent) ? y.parent : y;
+        if (!found.has(z)) found.set(z, { id:id(z), short:"@" + attr });
+      };
+      for (let i = r.i; i <= r.i + r.desc; i++) {
+        const s = E[i];
+        for (const o of out.get(s) || []) if (!inside(o.to)) add(o.to, o.attr);
+        for (const o of inn.get(s) || []) if (!inside(o.from)) add(o.from, o.attr);
+      }
+      return [...found.values()];
+    },
     pathTo(x){ const c = []; for (let r = rec(x); r; r = r.parent) c.unshift(id(r)); return c; },
     search(q){
       q = q.trim().toLowerCase(); if (!q) return [];

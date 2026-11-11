@@ -7,8 +7,8 @@
    The same bodies can be laid out as a tree instead (mode "tree"): the root at the bottom, and each open body's
    children above it, each on a branch of its own shape and length that leaves the body leaning outward and bends
    upward, and that rises at between 45° and 135° all the way along.
-   In either layout, the elements joined by an id link to the selected body are brought onto the map, leave their
-   places and gather round it (see gather), until the selection changes or is cleared. */
+   In either layout, the elements joined by an id link to the selected body, or to anything inside it, are brought onto
+   the map, leave their places and gather round it (see gather), until the selection changes or is cleared. */
 (function(){
 "use strict";
 const XO = window.XO;
@@ -194,29 +194,13 @@ class Orbits {
     });
   }
 
-  /* The elements joined to element id by an id link, either way, each once. Not its ancestors, which it moves with,
-     nor its descendants, which move with it. */
-  linkedIds(id){
-    const above = this.src.pathTo(id);
-    return this.src.linked(id).filter(x => !above.includes(x) && !this.src.pathTo(x).includes(id));
-  }
-  /* The bodies on the map joined to body d by a dashed link, either way, each once, with the same exceptions. */
-  linkedTo(d){
-    const out = new Set(), above = new Set(this.chainOf(d));
-    const below = m => { for (let x = m; x; x = x.parent) if (x === d) return true; return false; };
-    for (const l of this.links) if (l.kind === "cross" && (l.a === d || l.b === d)) {
-      const m = l.a === d ? l.b : l.a;
-      if (!above.has(m) && !below(m)) out.add(m);
-    }
-    return [...out];
-  }
   /* Gather round body id (null: none) the bodies linked to it, and let the ones gathered before go back to their places.
      A newly selected body first opens the way to the elements it is linked to (as a search does), so each is on the map. */
   gather(id){
     const fresh = id !== this.gatherId, d = this.bodies.get(id);
     this.gatherId = id; this.unopened = 0;
     if (fresh && d && d.type !== "group") {
-      const hidden = this.linkedIds(id).filter(x => !this.bodies.has(x)), size = this.open.size + this.spread.size;
+      const hidden = this.src.linked(id).map(e => e.id).filter(x => !this.bodies.has(x)), size = this.open.size + this.spread.size;
       for (const x of hidden.slice(0, GATHER_OPEN)) this.reveal(this.src.pathTo(x));
       this.unopened = Math.max(0, hidden.length - GATHER_OPEN);
       if (this.open.size + this.spread.size !== size) { this.build(); return; }
@@ -228,12 +212,21 @@ class Orbits {
      much room between their centres, so none of them touch, and the next ring the rest. They are dealt out in the order of
      the direction each body lies in from d, and every ring gets its share from all round, so each comes in roughly from
      its own side.
-     A body's own moons, or its branches and everything on them, come with it. */
+     The linked elements are the source's linked(): those joined by an id link to d or to anything inside it, each taken
+     up to the element it is part of. A body's own moons, or its branches and everything on them, come with it. A gathered
+     body with no dashed link of its own to d gets one, so it is plain why it came. */
   pullLinked(){
-    const d = this.bodies.get(this.gatherId) || null, near = d ? this.linkedTo(d) : [], to = new Set(near);
+    const d = this.bodies.get(this.gatherId) || null, linked = d && d.type !== "group" ? this.src.linked(d.id) : [];
+    const near = linked.map(e => this.bodies.get(e.id)).filter(Boolean), to = new Set(near);
     for (const b of this.order) if (b.pull && !to.has(b)) { b.pull = null; b.free = true; }
+    this.links = this.links.filter(l => !l.id.startsWith("g|"));
     this.gathered = null;
     if (!near.length) return;
+    for (const e of linked) {
+      const m = this.bodies.get(e.id);
+      if (m && !this.links.some(l => l.kind === "cross" && (l.a === d && l.b === m || l.a === m && l.b === d)))
+        this.links.push({ id:"g|" + m.id, a:d, b:m, color:"ref", short:e.short, kind:"cross" });
+    }
     const reach = this.reach(), ext = near.reduce((v, m) => Math.max(v, reach(m)), 0), w = 2 * ext + GATHER_GAP;
     const dir = m => Math.atan2(m.y - d.y, m.x - d.x);
     near.sort((p, q) => dir(p) - dir(q));

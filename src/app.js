@@ -156,15 +156,15 @@ function fitGathered(b){
 
 /* ---------------- what is lit ---------------- */
 /* draw() and placeTip() ask for this every frame; it is worked out again only when the hovered or selected body,
-   or the map (a rebuild makes a new order), changes */
+   or the map (a rebuild makes a new order) or its links (gathering adds some), changes */
 let litMemo = null;
 function litSet(){
   const O = A.O; if (!O) return null;
   const d = O.bodies.get(A.hover) || O.bodies.get(A.sel);
   if (!d) return null;
-  if (litMemo && litMemo.order === O.order && litMemo.d === d) return litMemo.lit;
+  if (litMemo && litMemo.order === O.order && litMemo.links === O.links && litMemo.d === d) return litMemo.lit;
   const lit = litOf(O, d);
-  litMemo = { order:O.order, d, lit };
+  litMemo = { order:O.order, links:O.links, d, lit };
   return lit;
 }
 function litOf(O, d){
@@ -658,7 +658,7 @@ function tipHtml(b){
   /* the first sentence of what defines it, or the listed value its text is */
   const ex = b.type === "group" ? null : A.src.explain(b.id);
   const dline = ex?.def?.text ? clip(XO.explain.firstSentence(ex.def.text), 120) : ex?.value?.label != null ? clip(ex.value.label + (ex.value.text ? ": " + XO.explain.firstSentence(ex.value.text) : ""), 120) : "";
-  const near = b.type === "group" || A.sel === b.id ? 0 : A.O.linkedIds(b.id).length;
+  const near = b.type === "group" || A.sel === b.id ? 0 : A.src.linked(b.id).length;
   const act = b.type === "group" ? "Click to spread them out" : A.sel !== b.id ? "Click to centre it" + (near ? ` and bring the ${near === 1 ? "element" : near + " elements"} it is linked to next to it` : "") + (canToggle(b) ? "; click again to show its child elements" : "") : canToggle(b) ? (b.isOpen ? "Click again to fold its child elements" : "Click again to show its child elements") : "";
   const cross = A.O.links.filter(l => l.kind !== "spoke" && (l.a === b || l.b === b)).length;
   const head = b.parent ? "" : headerHtml(A.src.header());
