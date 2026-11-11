@@ -3,6 +3,7 @@
      node(id)      what a body is (label, colour key, size)
      groups(id)    what orbits it, one group per orbit
      refs(id)      extra links to bodies elsewhere (drawn dashed)
+     linked(id)    every element joined to that one by an id link, either way
      info(id)      what the side panel shows
      explain(id)   what an element is, in plain words, and what defines its name
      search(q)     matching bodies
@@ -436,6 +437,7 @@ function xmlSource(doc, fileName){
         entries:ks.map(k => ({ id:id(k) })) }));
     },
     refs(x){ const r = rec(x); return (out.get(r) || []).map(o => ({ to:id(o.to), color:"ref", short:"@" + o.attr })); },
+    linked(x){ const r = rec(x); return [...new Set([...(out.get(r) || []).map(o => id(o.to)), ...(inn.get(r) || []).map(o => id(o.from))])]; },
     pathTo(x){ const c = []; for (let r = rec(x); r; r = r.parent) c.unshift(id(r)); return c; },
     search(q){
       q = q.trim().toLowerCase(); if (!q) return [];

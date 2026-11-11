@@ -29,7 +29,9 @@ Owner decisions; keep them:
 - Two views of that tree, switched in the top bar. The Orbit view: children circle their
   parent. The Tree view: the root at the bottom, and each open element's children above
   it, on curved branches (never only straight lines) that rise at between 45° and 135°
-  all the way along.
+  all the way along. The one exception, chosen by the owner: while an element is selected,
+  the elements joined to it by a dashed link gather round it in both views, and their
+  branches stretch to them until they go back.
 - The S-201 example files stay. The OpenS100 one is third-party (MPL-2.0): don't edit its
   content, and keep its notice comment and the README's licence note. Rules 3 and 4 don't
   apply to it.
@@ -78,7 +80,9 @@ Owner decisions; keep them:
      outside the repo.
    - **Basic check.** Both samples load, orbits open, search works, and the console shows
      no errors; the same in the Tree view, where every branch must rise at between 45° and
-     135° along its whole length.
+     135° along its whole length (measure with nothing selected once the layout has settled,
+     or leave out the branches to the bodies gathered round the selection: those with
+     `b.pull`).
    - **Cleanups and refactors change nothing.** Run the same steps before and after in a
      Playwright context with `reducedMotion: "reduce"`, so the orbits stand still. Let the
      layout settle. Then compare the bodies (`window.XO.app.O.order`: id, label, size,
