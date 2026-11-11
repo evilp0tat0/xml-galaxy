@@ -6,7 +6,9 @@
    Every orbit still clears each body's whole system.
    The same bodies can be laid out as a tree instead (mode "tree"): the root at the bottom, and each open body's
    children above it, each on a branch of its own shape and length that leaves the body leaning outward and bends
-   upward, and that rises at between 45° and 135° all the way along. */
+   upward, and that rises at between 45° and 135° all the way along.
+   In either layout, the bodies joined by a dashed link to the selected body leave their places and gather round it
+   (see gather), until something else is selected. */
 (function(){
 "use strict";
 const XO = window.XO;
@@ -20,6 +22,7 @@ const BRANCH_RISE = 60;                  /* tree: how far above a body its child
 const FAN = Math.PI / 6, LEAN = Math.PI / 4;
 const WANDER = Math.PI / 36;             /* tree: how far a branch's first lean strays from the regular fan, at most (5°) */
 const STRETCH = 0.25;                    /* tree: how much further than the arc a child can sit, as a share of its rise */
+const GATHER_GAP = 14;                   /* the room kept between bodies gathered round the selected one, and round its system */
 /* a number from 0 up to 1 that is always the same for the same text: what makes one branch differ from the next */
 function chance(text){
   let h = 2166136261;
@@ -37,6 +40,8 @@ class Orbits {
     this.t = 0;
     this.bodies = new Map();            /* id → body; kept across rebuilds so positions carry over */
     this.order = []; this.links = []; this.ghosts = []; this.root = null;
+    this.gatherId = null;               /* the body the linked bodies gather round: the selected one */
+    this.gathered = null;               /* { to, R }: that body, and how far round it they reach */
   }
   collapseAt(depth){ return depth === 0 ? 16 : 10; }
 
@@ -102,12 +107,13 @@ class Orbits {
       const p = b.parent;
       if (b.fresh) { b.x = p ? p.x : 0; b.y = p ? p.y : 0; b.fresh = false; }
       /* a body already on the map keeps its place on its orbit, even if the orbit is now a different one */
-      else if (p && b.ring && !b.free && !b.dragging) b.a0 = Math.atan2(b.y - p.y, b.x - p.x) - b.ring.speed * this.t;
+      else if (p && b.ring && !b.free && !b.dragging && !b.pull) b.a0 = Math.atan2(b.y - p.y, b.x - p.x) - b.ring.speed * this.t;
     }
     /* orbits grow (or shrink) smoothly from where their body is now, so the whole map widens together
        and a newly spread system never cuts across its neighbours on the way */
     for (const b of order) for (const ring of b.rings) { const m = ring.members[0]; ring.rd = Math.hypot(m.x - b.x, m.y - b.y); }
     this.bodies = next; this.order = order; this.links = links; this.root = root;
+    this.pullLinked();
     return this;
   }
 
@@ -186,6 +192,58 @@ class Orbits {
     });
   }
 
+  /* The bodies joined to body d by a dashed link, either way, each once. Not d's ancestors, which it moves with, nor its
+     descendants, which move with it. */
+  linkedTo(d){
+    const out = new Set(), above = new Set(this.chainOf(d));
+    const below = m => { for (let x = m; x; x = x.parent) if (x === d) return true; return false; };
+    for (const l of this.links) if (l.kind === "cross" && (l.a === d || l.b === d)) {
+      const m = l.a === d ? l.b : l.a;
+      if (!above.has(m) && !below(m)) out.add(m);
+    }
+    return [...out];
+  }
+  /* Gather round body id (null: none) the bodies linked to it, and let the ones gathered before go back to their places. */
+  gather(id){ this.gatherId = id; this.pullLinked(); }
+  /* Each linked body gets a spot round the gathered-to body d, b.pull: its offset from d. The spots lie on rings outside
+     d's system, every spot as wide as the biggest of the gathered systems, so none of them touch; a ring holds as many as
+     fit round it, the next ring the rest. They are dealt out in the order of the direction each body lies in from d, and
+     every ring gets its share from all round, so each comes in from its own side and their links do not cross.
+     A body's own moons, or its branches and everything on them, come with it. */
+  pullLinked(){
+    const d = this.bodies.get(this.gatherId) || null, near = d ? this.linkedTo(d) : [], to = new Set(near);
+    for (const b of this.order) if (b.pull && !to.has(b)) { b.pull = null; b.free = true; }
+    this.gathered = null;
+    if (!near.length) return;
+    const reach = this.reach(), ext = near.reduce((v, m) => Math.max(v, reach(m)), 0), w = 2 * ext + GATHER_GAP;
+    const dir = m => Math.atan2(m.y - d.y, m.x - d.x);
+    near.sort((p, q) => dir(p) - dir(q));
+    const rings = [];
+    for (let left = near.length, r = reach(d) + GATHER_GAP + ext; left > 0; r += w) {
+      const n = Math.min(left, Math.max(1, Math.floor(2 * Math.PI * r / w)));
+      rings.push({ r, n, got:0, a:0 }); left -= n;
+    }
+    for (const m of near) {
+      let R = rings[0];
+      for (const q of rings) if ((q.got + 0.5) / q.n < (R.got + 0.5) / R.n) R = q;
+      if (!R.got) R.a = dir(m);
+      const a = R.a + 2 * Math.PI * R.got++ / R.n;
+      m.pull = { to:d, x:Math.cos(a) * R.r, y:Math.sin(a) * R.r }; m.free = true;
+    }
+    this.gathered = { to:d, R:rings[rings.length - 1].r + ext };
+  }
+  /* how far each body's whole system reaches from its centre: its moons' orbits, or in the tree its branches and
+     everything on them */
+  reach(){
+    if (this.mode !== "tree") return b => b.size + (b.sysR || 0);
+    const r = new Map(this.order.map(b => [b, b.size]));
+    for (let i = this.order.length - 1; i > 0; i--) {
+      const b = this.order[i], p = b.parent;
+      r.set(p, Math.max(r.get(p), Math.hypot(b.tx - p.tx, b.ty - p.ty) + r.get(b)));
+    }
+    return b => r.get(b);
+  }
+
   /* One physics step. Parents come first in `order`, so moons aim at where their planet actually is. */
   step(dt, spin){
     if (spin) this.t += dt;
@@ -200,9 +258,10 @@ class Orbits {
         R.rd += (R.r - R.rd) * f; if (Math.abs(R.r - R.rd) < 1e-6 * R.r) R.rd = R.r; else moving = Math.max(moving, 1);
         const a = b.a0 + R.speed * this.t; b.ax = b.parent.x + Math.cos(a) * R.rd; b.ay = b.parent.y + Math.sin(a) * R.rd;
       }
+      if (b.pull) { b.ax = b.pull.to.x + b.pull.x; b.ay = b.pull.to.y + b.pull.y; }
       if (b.dragging) continue;
-      /* bodies ride exactly on their orbit; only one let go after a drag drifts back to it.
-         In the tree every body eases to its place, and stops exactly on it. */
+      /* bodies ride exactly on their orbit, or on their spot round the selected body; only one let go after a drag,
+         or sent to a spot or back from it, drifts there. In the tree every body eases to its place, and stops exactly on it. */
       if (!b.free && !tree) { b.x = b.ax; b.y = b.ay; continue; }
       const dx = b.ax - b.x, dy = b.ay - b.y;
       b.x += dx * f; b.y += dy * f;

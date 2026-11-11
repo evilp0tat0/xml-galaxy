@@ -138,12 +138,15 @@ function followBody(b, zoomToSystem){
   A.camTo = null;
   if (!b.parent) { fit(true); return; }
   A.follow = b.id; A.followOff = null;
+  const fa = freeArea(), room = Math.min(fa.x1 - fa.x0, fa.y1 - fa.y0) / 2;
   if (zoomToSystem) {
-    const fa = freeArea();
     /* a body with no orbits of its own: show it with its neighbourhood, not filling the screen */
     const R = b.sysR ? (b.sysR + b.size) * 1.15 + b.size * 0.5 : b.size * 12;
-    A.followK = Math.max(0.05, Math.min(MAX_ZOOM, Math.min(fa.x1 - fa.x0, fa.y1 - fa.y0) / (2 * R)));
+    A.followK = Math.max(0.05, Math.min(MAX_ZOOM, room / R));
   }
+  /* the bodies gathered round it fit on screen too: zoom out as far as that needs, never in */
+  const g = A.O.gathered;
+  if (g?.to === b) { const k = Math.max(minZoom(), room / (g.R * 1.05)); if (k < (A.followK ?? A.cam.k)) A.followK = k; }
   kick();
 }
 
@@ -651,7 +654,8 @@ function tipHtml(b){
   /* the first sentence of what defines it, or the listed value its text is */
   const ex = b.type === "group" ? null : A.src.explain(b.id);
   const dline = ex?.def?.text ? clip(XO.explain.firstSentence(ex.def.text), 120) : ex?.value?.label != null ? clip(ex.value.label + (ex.value.text ? ": " + XO.explain.firstSentence(ex.value.text) : ""), 120) : "";
-  const act = b.type === "group" ? "Click to spread them out" : A.sel !== b.id ? "Click to centre it" + (canToggle(b) ? "; click again to show its child elements" : "") : canToggle(b) ? (b.isOpen ? "Click again to fold its child elements" : "Click again to show its child elements") : "";
+  const near = b.type === "group" || A.sel === b.id ? 0 : A.O.linkedTo(b).length;
+  const act = b.type === "group" ? "Click to spread them out" : A.sel !== b.id ? "Click to centre it" + (near ? ` and bring the ${near === 1 ? "element" : near + " elements"} it is linked to next to it` : "") + (canToggle(b) ? "; click again to show its child elements" : "") : canToggle(b) ? (b.isOpen ? "Click again to fold its child elements" : "Click again to show its child elements") : "";
   const cross = A.O.links.filter(l => l.kind !== "spoke" && (l.a === b || l.b === b)).length;
   const head = b.parent ? "" : headerHtml(A.src.header());
   return `<b>${esc(b.label)}</b><span class="s">${kind}</span>${dline ? `<div class="c">${esc(dline)}</div>` : ""}${head}${b.parent ? `<div class="c">${chainText(b)}</div>` : ""}${cross ? `<div class="c">${cross} more link${cross === 1 ? "" : "s"} (dashed)</div>` : ""}${act ? `<div class="c">${act}</div>` : ""}`;
@@ -676,8 +680,10 @@ function placeTip(b){
   }
   tip.style.left = best.x + "px"; tip.style.top = best.y + "px";
 }
+/* Selecting a body also gathers round it the bodies it is linked to; they go back when something else is selected. */
 function select(b){
   A.sel = b ? b.id : null;
+  A.O?.gather(A.sel);
   renderRename();
   if (!b) { A.follow = null; $("side").hidden = true; kick(); return; }
   renderSide(b); kick();
@@ -941,8 +947,8 @@ function renderLegend(){
   if (tags.length > 16) out.push(`<div class="k" style="color:var(--faint)">… and ${tags.length - 16} more tags</div>`);
   out.push(`<div class="k"><i style="background:repeating-linear-gradient(90deg,${colour("ref")} 0 5px,transparent 5px 9px)"></i>id reference (ref, href, idref…)</div>`);
   out.push(tree
-    ? `<p>The root element is at the bottom. Click a circle to centre it; click it again to show all its child elements above it, each on a branch that curves upward; once more to fold them. A dashed circle with a number is a folded group: click it to spread it out. The buttons at the bottom right show every element at once, or fold them all back into one circle. Drag a body to pull it about; it drifts back to its place. Hover to light up the chain back to the root.</p>`
-    : `<p>Click a circle to centre it; click it again to show all its child elements; once more to fold them. A dashed circle with a number is a folded group: click it to spread it out. The buttons at the bottom right show every orbit at once, or fold them all back into one circle. Drag a body to pull it about; it drifts back to its orbit. Hover to light up the chain back to the centre.</p>`);
+    ? `<p>The root element is at the bottom. Click a circle to centre it and bring the elements it is linked to (dashed) next to it; click it again to show all its child elements above it, each on a branch that curves upward; once more to fold them. A dashed circle with a number is a folded group: click it to spread it out. The buttons at the bottom right show every element at once, or fold them all back into one circle. Drag a body to pull it about; it drifts back to its place. Hover to light up the chain back to the root.</p>`
+    : `<p>Click a circle to centre it and bring the elements it is linked to (dashed) next to it; click it again to show all its child elements; once more to fold them. A dashed circle with a number is a folded group: click it to spread it out. The buttons at the bottom right show every orbit at once, or fold them all back into one circle. Drag a body to pull it about; it drifts back to its orbit. Hover to light up the chain back to the centre.</p>`);
   $("legendBody").innerHTML = out.join("");
 }
 
