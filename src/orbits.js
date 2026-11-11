@@ -7,8 +7,8 @@
    The same bodies can be laid out as a tree instead (mode "tree"): the root at the bottom, and each open body's
    children above it, each on a branch of its own shape and length that leaves the body leaning outward and bends
    upward, and that rises at between 45° and 135° all the way along.
-   In either layout, the bodies joined by a dashed link to the selected body leave their places and gather round it
-   (see gather), until something else is selected. */
+   In either layout, the elements joined by an id link to the selected body are brought onto the map, leave their
+   places and gather round it (see gather), until the selection changes or is cleared. */
 (function(){
 "use strict";
 const XO = window.XO;
@@ -23,6 +23,7 @@ const FAN = Math.PI / 6, LEAN = Math.PI / 4;
 const WANDER = Math.PI / 36;             /* tree: how far a branch's first lean strays from the regular fan, at most (5°) */
 const STRETCH = 0.25;                    /* tree: how much further than the arc a child can sit, as a share of its rise */
 const GATHER_GAP = 14;                   /* the room kept between bodies gathered round the selected one, and round its system */
+const GATHER_OPEN = 60;                  /* the most linked elements a selection opens the way to */
 /* a number from 0 up to 1 that is always the same for the same text: what makes one branch differ from the next */
 function chance(text){
   let h = 2166136261;
@@ -42,6 +43,7 @@ class Orbits {
     this.order = []; this.links = []; this.ghosts = []; this.root = null;
     this.gatherId = null;               /* the body the linked bodies gather round: the selected one */
     this.gathered = null;               /* { to, R }: that body, and how far round it they reach */
+    this.unopened = 0;                  /* linked elements left folded away, past GATHER_OPEN */
   }
   collapseAt(depth){ return depth === 0 ? 16 : 10; }
 
@@ -192,8 +194,13 @@ class Orbits {
     });
   }
 
-  /* The bodies joined to body d by a dashed link, either way, each once. Not d's ancestors, which it moves with, nor its
-     descendants, which move with it. */
+  /* The elements joined to element id by an id link, either way, each once. Not its ancestors, which it moves with,
+     nor its descendants, which move with it. */
+  linkedIds(id){
+    const above = this.src.pathTo(id);
+    return this.src.linked(id).filter(x => !above.includes(x) && !this.src.pathTo(x).includes(id));
+  }
+  /* The bodies on the map joined to body d by a dashed link, either way, each once, with the same exceptions. */
   linkedTo(d){
     const out = new Set(), above = new Set(this.chainOf(d));
     const below = m => { for (let x = m; x; x = x.parent) if (x === d) return true; return false; };
@@ -203,12 +210,24 @@ class Orbits {
     }
     return [...out];
   }
-  /* Gather round body id (null: none) the bodies linked to it, and let the ones gathered before go back to their places. */
-  gather(id){ this.gatherId = id; this.pullLinked(); }
+  /* Gather round body id (null: none) the bodies linked to it, and let the ones gathered before go back to their places.
+     A newly selected body first opens the way to the elements it is linked to (as a search does), so each is on the map. */
+  gather(id){
+    const fresh = id !== this.gatherId, d = this.bodies.get(id);
+    this.gatherId = id; this.unopened = 0;
+    if (fresh && d && d.type !== "group") {
+      const hidden = this.linkedIds(id).filter(x => !this.bodies.has(x)), size = this.open.size + this.spread.size;
+      for (const x of hidden.slice(0, GATHER_OPEN)) this.reveal(this.src.pathTo(x));
+      this.unopened = Math.max(0, hidden.length - GATHER_OPEN);
+      if (this.open.size + this.spread.size !== size) { this.build(); return; }
+    }
+    this.pullLinked();
+  }
   /* Each linked body gets a spot round the gathered-to body d, b.pull: its offset from d. The spots lie on rings outside
-     d's system, every spot as wide as the biggest of the gathered systems, so none of them touch; a ring holds as many as
-     fit round it, the next ring the rest. They are dealt out in the order of the direction each body lies in from d, and
-     every ring gets its share from all round, so each comes in from its own side and their links do not cross.
+     d's system, every spot as wide as the biggest of the gathered systems; a ring holds as many as fit round it with that
+     much room between their centres, so none of them touch, and the next ring the rest. They are dealt out in the order of
+     the direction each body lies in from d, and every ring gets its share from all round, so each comes in roughly from
+     its own side.
      A body's own moons, or its branches and everything on them, come with it. */
   pullLinked(){
     const d = this.bodies.get(this.gatherId) || null, near = d ? this.linkedTo(d) : [], to = new Set(near);
@@ -220,7 +239,7 @@ class Orbits {
     near.sort((p, q) => dir(p) - dir(q));
     const rings = [];
     for (let left = near.length, r = reach(d) + GATHER_GAP + ext; left > 0; r += w) {
-      const n = Math.min(left, Math.max(1, Math.floor(2 * Math.PI * r / w)));
+      const n = Math.min(left, Math.max(1, Math.floor(Math.PI / Math.asin(Math.min(1, w / (2 * r))))));
       rings.push({ r, n, got:0, a:0 }); left -= n;
     }
     for (const m of near) {
@@ -301,11 +320,12 @@ class Orbits {
     this.build();
   }
   /* the box the map fills once everything has come to rest (the layout knows this up front): a square round the sun
-     that holds every orbit at its full size, or the box round the tree */
+     that holds every orbit at its full size, or the box round the tree and the bodies gathered round the selected one */
   bounds(){
     if (this.mode === "tree") {
-      const B = { x0:-120, y0:-120, x1:120, y1:120 };
+      const B = { x0:-120, y0:-120, x1:120, y1:120 }, g = this.gathered;
       for (const b of this.order) { B.x0 = Math.min(B.x0, b.tx - b.size); B.x1 = Math.max(B.x1, b.tx + b.size); B.y0 = Math.min(B.y0, b.ty - b.size); B.y1 = Math.max(B.y1, b.ty + b.size); }
+      if (g) { B.x0 = Math.min(B.x0, g.to.tx - g.R); B.x1 = Math.max(B.x1, g.to.tx + g.R); B.y0 = Math.min(B.y0, g.to.ty - g.R); B.y1 = Math.max(B.y1, g.to.ty + g.R); }
       return B;
     }
     let R = 120;

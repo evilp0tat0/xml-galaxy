@@ -138,16 +138,20 @@ function followBody(b, zoomToSystem){
   A.camTo = null;
   if (!b.parent) { fit(true); return; }
   A.follow = b.id; A.followOff = null;
-  const fa = freeArea(), room = Math.min(fa.x1 - fa.x0, fa.y1 - fa.y0) / 2;
   if (zoomToSystem) {
+    const fa = freeArea();
     /* a body with no orbits of its own: show it with its neighbourhood, not filling the screen */
     const R = b.sysR ? (b.sysR + b.size) * 1.15 + b.size * 0.5 : b.size * 12;
-    A.followK = Math.max(0.05, Math.min(MAX_ZOOM, room / R));
+    A.followK = Math.max(0.05, Math.min(MAX_ZOOM, Math.min(fa.x1 - fa.x0, fa.y1 - fa.y0) / (2 * R)));
   }
-  /* the bodies gathered round it fit on screen too: zoom out as far as that needs, never in */
-  const g = A.O.gathered;
-  if (g?.to === b) { const k = Math.max(minZoom(), room / (g.R * 1.05)); if (k < (A.followK ?? A.cam.k)) A.followK = k; }
+  fitGathered(b);
   kick();
+}
+/* the bodies gathered round the followed body b fit on screen too: zoom out as far as that needs, never in */
+function fitGathered(b){
+  const g = A.O.gathered; if (g?.to !== b) return;
+  const fa = freeArea(), k = Math.max(minZoom(), Math.min(fa.x1 - fa.x0, fa.y1 - fa.y0) / (2.2 * g.R));
+  if (k < (A.followK ?? A.cam.k)) A.followK = k;
 }
 
 /* ---------------- what is lit ---------------- */
@@ -654,7 +658,7 @@ function tipHtml(b){
   /* the first sentence of what defines it, or the listed value its text is */
   const ex = b.type === "group" ? null : A.src.explain(b.id);
   const dline = ex?.def?.text ? clip(XO.explain.firstSentence(ex.def.text), 120) : ex?.value?.label != null ? clip(ex.value.label + (ex.value.text ? ": " + XO.explain.firstSentence(ex.value.text) : ""), 120) : "";
-  const near = b.type === "group" || A.sel === b.id ? 0 : A.O.linkedTo(b).length;
+  const near = b.type === "group" || A.sel === b.id ? 0 : A.O.linkedIds(b.id).length;
   const act = b.type === "group" ? "Click to spread them out" : A.sel !== b.id ? "Click to centre it" + (near ? ` and bring the ${near === 1 ? "element" : near + " elements"} it is linked to next to it` : "") + (canToggle(b) ? "; click again to show its child elements" : "") : canToggle(b) ? (b.isOpen ? "Click again to fold its child elements" : "Click again to show its child elements") : "";
   const cross = A.O.links.filter(l => l.kind !== "spoke" && (l.a === b || l.b === b)).length;
   const head = b.parent ? "" : headerHtml(A.src.header());
@@ -680,10 +684,11 @@ function placeTip(b){
   }
   tip.style.left = best.x + "px"; tip.style.top = best.y + "px";
 }
-/* Selecting a body also gathers round it the bodies it is linked to; they go back when something else is selected. */
+/* Selecting a body also gathers round it the elements it is linked to; they go back when the selection changes or is cleared. */
 function select(b){
   A.sel = b ? b.id : null;
   A.O?.gather(A.sel);
+  if (A.O?.unopened) note(`${A.O.unopened} more linked elements are still folded away: press a (show everything) to bring them too.`);
   renderRename();
   if (!b) { A.follow = null; $("side").hidden = true; kick(); return; }
   renderSide(b); kick();
@@ -800,6 +805,7 @@ function reveal(id){
   if (!b) { note("That element is not in this file."); kick(); return; }
   select(b); followBody(b, true); A.pulse = { id:b.id, t0:performance.now() };
   if (b.parent) A.followK = Math.min(MAX_ZOOM, Math.max(A.followK || A.cam.k, 8 / Math.max(1e-4, b.size)));
+  fitGathered(b);
 }
 let resIdx = -1, qTimer = 0;
 /* Typing searches after a short pause (longer in a big file), so fast typing does not search, and lay out the results,
@@ -948,7 +954,7 @@ function renderLegend(){
   out.push(`<div class="k"><i style="background:repeating-linear-gradient(90deg,${colour("ref")} 0 5px,transparent 5px 9px)"></i>id reference (ref, href, idref…)</div>`);
   out.push(tree
     ? `<p>The root element is at the bottom. Click a circle to centre it and bring the elements it is linked to (dashed) next to it; click it again to show all its child elements above it, each on a branch that curves upward; once more to fold them. A dashed circle with a number is a folded group: click it to spread it out. The buttons at the bottom right show every element at once, or fold them all back into one circle. Drag a body to pull it about; it drifts back to its place. Hover to light up the chain back to the root.</p>`
-    : `<p>Click a circle to centre it and bring the elements it is linked to (dashed) next to it; click it again to show all its child elements; once more to fold them. A dashed circle with a number is a folded group: click it to spread it out. The buttons at the bottom right show every orbit at once, or fold them all back into one circle. Drag a body to pull it about; it drifts back to its orbit. Hover to light up the chain back to the centre.</p>`);
+    : `<p>Click a circle to centre it and bring the elements it is linked to (dashed) next to it; click it again to show all its child elements; once more to fold them. A dashed circle with a number is a folded group: click it to spread it out. The buttons at the bottom right show every orbit at once, or fold them all back into one circle. Drag a body to pull it about; it drifts back to its place. Hover to light up the chain back to the centre.</p>`);
   $("legendBody").innerHTML = out.join("");
 }
 

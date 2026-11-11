@@ -80,8 +80,9 @@ Owner decisions; keep them:
      outside the repo.
    - **Basic check.** Both samples load, orbits open, search works, and the console shows
      no errors; the same in the Tree view, where every branch must rise at between 45° and
-     135° along its whole length (measure with nothing selected, or leave out the branches
-     to the bodies gathered round the selection: those with `b.pull`).
+     135° along its whole length (measure with nothing selected once the layout has settled,
+     or leave out the branches to the bodies gathered round the selection: those with
+     `b.pull`).
    - **Cleanups and refactors change nothing.** Run the same steps before and after in a
      Playwright context with `reducedMotion: "reduce"`, so the orbits stand still. Let the
      layout settle. Then compare the bodies (`window.XO.app.O.order`: id, label, size,
